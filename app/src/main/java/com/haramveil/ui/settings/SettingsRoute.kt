@@ -22,4 +22,5 @@ object SettingsRoute {
     const val route = "main/settings"
     const val advancedRoute = "main/settings/advanced"
     const val changePinRoute = "main/settings/change-pin"
+    const val testRoute = "main/settings/test"
 }

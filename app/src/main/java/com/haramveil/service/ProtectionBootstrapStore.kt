@@ -59,6 +59,20 @@ class ProtectionBootstrapStore(
             .apply()
     }
 
+    fun lastServiceHeartbeatMs(): Long =
+        preferences.getLong(ServiceHeartbeatMsKey, 0L)
+
+    fun updateScanHeartbeat(
+        timestampMs: Long = System.currentTimeMillis(),
+    ) {
+        preferences.edit()
+            .putLong(LastScanHeartbeatMsKey, timestampMs)
+            .apply()
+    }
+
+    fun lastScanHeartbeatMs(): Long =
+        preferences.getLong(LastScanHeartbeatMsKey, 0L)
+
     fun isServiceAlive(
         maxStalenessMs: Long = DefaultHeartbeatStalenessMs,
     ): Boolean {
@@ -114,6 +128,7 @@ class ProtectionBootstrapStore(
         private const val ProtectionEnabledKey = "protection_enabled"
         private const val ServiceRunningKey = "service_running"
         private const val ServiceHeartbeatMsKey = "service_heartbeat_ms"
+        private const val LastScanHeartbeatMsKey = "last_scan_heartbeat_ms"
         private const val LastTamperEventTypeKey = "last_tamper_event_type"
         private const val LastTamperEventMessageKey = "last_tamper_event_message"
         private const val LastTamperEventTimestampMsKey = "last_tamper_event_timestamp_ms"

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -45,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +69,14 @@ fun DashboardScreen(
     protectionEnabled: Boolean,
     activeModeSummary: String,
     activeModeCount: Int,
+    mode1Enabled: Boolean,
+    mode2Enabled: Boolean,
+    mode3Enabled: Boolean,
+    lastServiceHeartbeatMs: Long,
+    lastScanHeartbeatMs: Long,
+    safeWindowActiveUntilMs: Long,
+    lastBlockTimestampMs: Long,
+    lastBlockAppLabel: String,
     monitoredAppsCount: Int,
     blocksToday: Int,
     accessibilityServiceActive: Boolean,
@@ -79,11 +89,18 @@ fun DashboardScreen(
     recentEvents: List<BlockEventUiModel>,
     onProtectionEnabledChange: (Boolean) -> Unit,
     onRequestProtectionDisable: () -> Unit,
+    onMode1Changed: (Boolean) -> Unit,
+    onMode2Changed: (Boolean) -> Unit,
+    onMode3Changed: (Boolean) -> Unit,
+    onRestartProtection: () -> Unit,
+    onStartSafeWindow: (Long) -> Unit,
+    onResumeProtection: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenBatteryOptimizationGuide: () -> Unit,
     onMarkBatteryOptimizationCompleted: () -> Unit,
     onViewFullStats: () -> Unit,
 ) {
+    val nowMs = System.currentTimeMillis()
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -108,6 +125,12 @@ fun DashboardScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
+                        val isPaused = safeWindowActiveUntilMs > nowMs
+                        val protectionLabel = when {
+                            isPaused -> "PAUSED"
+                            protectionEnabled -> "ON"
+                            else -> "OFF"
+                        }
                         Icon(
                             imageVector = Icons.Outlined.Shield,
                             contentDescription = null,
@@ -115,16 +138,20 @@ fun DashboardScreen(
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Protection ${if (protectionEnabled) "ON" else "OFF"}",
+                                text = "Protection $protectionLabel",
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                text = if (protectionEnabled) {
+                                text = when {
+                                    isPaused -> "Safe window active until ${formatAbsoluteTime(safeWindowActiveUntilMs)}."
+                                    protectionEnabled -> {
                                     "HaramVeil is actively watching for risky content across your monitored apps."
-                                } else {
+                                    }
+                                    else -> {
                                     "Protection is paused. A PIN confirmation is required before this state changes."
+                                    }
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -203,6 +230,31 @@ fun DashboardScreen(
                             )
                         }
                     }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = "Service heartbeat: ${formatRelativeTime(lastServiceHeartbeatMs, nowMs)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "Last scan: ${formatRelativeTime(lastScanHeartbeatMs, nowMs)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (!foregroundServiceActive && safeWindowActiveUntilMs <= nowMs) {
+                        OutlinedButton(
+                            onClick = onRestartProtection,
+                            modifier = Modifier.padding(top = 10.dp),
+                        ) {
+                            Text("Restart protection")
+                        }
+                    }
                 }
             }
             item {
@@ -253,6 +305,106 @@ fun DashboardScreen(
                             )
                         }
                     }
+                }
+            }
+            item {
+                HaramVeilSectionCard {
+                    SectionLabel(text = "Mode controls")
+                    Text(
+                        text = "Toggle each detection layer directly from the dashboard.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ModeToggleRow(
+                        label = "Mode 1",
+                        description = "Always-on text and UI scan",
+                        checked = mode1Enabled,
+                        onCheckedChange = onMode1Changed,
+                    )
+                    ModeToggleRow(
+                        label = "Mode 2",
+                        description = "OCR scan after Mode 1 flags risk",
+                        checked = mode2Enabled,
+                        onCheckedChange = onMode2Changed,
+                    )
+                    ModeToggleRow(
+                        label = "Mode 3",
+                        description = "Visual model scan for explicit content",
+                        checked = mode3Enabled,
+                        onCheckedChange = onMode3Changed,
+                        supportingText = "Runs only for apps you force to Mode 3 in Advanced Settings.",
+                    )
+                }
+            }
+            item {
+                HaramVeilSectionCard {
+                    SectionLabel(text = "Safe window")
+                    Text(
+                        text = "Pause protection briefly when you need a short break. PIN confirmation is always required.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (safeWindowActiveUntilMs > nowMs) {
+                        StatusPill(
+                            label = "Paused until ${formatAbsoluteTime(safeWindowActiveUntilMs)}",
+                            backgroundColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
+                            contentColor = MaterialTheme.colorScheme.tertiary,
+                        )
+                        OutlinedButton(
+                            onClick = onResumeProtection,
+                            modifier = Modifier.padding(top = 10.dp),
+                        ) {
+                            Text("Resume now")
+                        }
+                    } else {
+                        var selectedMinutes by rememberSaveable { mutableStateOf(15) }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            listOf(5, 15, 30).forEach { minutes ->
+                                FilterChip(
+                                    selected = selectedMinutes == minutes,
+                                    onClick = { selectedMinutes = minutes },
+                                    label = { Text("$minutes min") },
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = { onStartSafeWindow(selectedMinutes * 60_000L) },
+                            modifier = Modifier.padding(top = 10.dp),
+                        ) {
+                            Text("Start safe window")
+                        }
+                    }
+                }
+            }
+            item {
+                HaramVeilSectionCard {
+                    SectionLabel(text = "Protection timeline")
+                    TimelineRow(
+                        label = "Service heartbeat",
+                        value = formatRelativeTime(lastServiceHeartbeatMs, nowMs),
+                    )
+                    TimelineRow(
+                        label = "Last scan",
+                        value = formatRelativeTime(lastScanHeartbeatMs, nowMs),
+                    )
+                    val lastBlockLabel = if (lastBlockTimestampMs > 0L) {
+                        "Last block: ${formatRelativeTime(lastBlockTimestampMs, nowMs)} - $lastBlockAppLabel"
+                    } else {
+                        "Last block: none yet"
+                    }
+                    TimelineRow(
+                        label = "Block history",
+                        value = lastBlockLabel,
+                    )
+                    TimelineRow(
+                        label = "Accessibility",
+                        value = if (accessibilityServiceActive) "Active" else "Disabled",
+                    )
                 }
             }
             if (!batteryOptimizationCompleted) {
@@ -369,6 +521,74 @@ fun DashboardScreen(
 }
 
 @Composable
+private fun ModeToggleRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    supportingText: String? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!supportingText.isNullOrBlank()) {
+                Text(
+                    text = supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+    }
+}
+
+@Composable
+private fun TimelineRow(
+    label: String,
+    value: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
 private fun ActiveLockdownRow(
     lockdown: ActiveLockdownUiModel,
 ) {
@@ -462,4 +682,39 @@ private fun QuickEventRow(
         }
         ModeBadge(mode = event.mode)
     }
+}
+
+private fun formatRelativeTime(
+    timestampMs: Long,
+    nowMs: Long,
+): String {
+    if (timestampMs <= 0L) {
+        return "Never"
+    }
+    val deltaMs = (nowMs - timestampMs).coerceAtLeast(0L)
+    if (deltaMs < 15_000L) {
+        return "Just now"
+    }
+    val minutes = deltaMs / 60_000L
+    if (minutes < 60) {
+        return "${minutes}m ago"
+    }
+    val hours = minutes / 60
+    if (hours < 24) {
+        return "${hours}h ago"
+    }
+    val days = hours / 24
+    return "${days}d ago"
+}
+
+private fun formatAbsoluteTime(
+    timestampMs: Long,
+): String {
+    if (timestampMs <= 0L) {
+        return "Unknown"
+    }
+    val formatter = DateTimeFormatter.ofPattern("h:mm a")
+    return java.time.Instant.ofEpochMilli(timestampMs)
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(formatter)
 }

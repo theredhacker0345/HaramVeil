@@ -7,77 +7,82 @@
 [![F-Droid](https://img.shields.io/badge/F--Droid-Pending-blue.svg)](https://f-droid.org)
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-29-orange.svg)](https://developer.android.com)
 
-HaramVeil is a privacy-first, Islamic-values-aligned,
-on-device content filtering app for Android.
-It uses a 3-layer AI detection system to block
-harmful visual content, with zero cloud dependency,
-zero tracking, and zero internet in production.
+HaramVeil is a privacy-first, Islamic-values-aligned Android app that blocks adult and explicit content on-device. It uses a layered detection system (UI text, OCR, and visual AI), a full-screen veil overlay, and a local lockdown timer to interrupt harmful content quickly while keeping everything private.
 
 ---
 
-## Screenshots
+## What This App Does
 
-<!-- Add screenshots here after device testing -->
-*Screenshots coming soon*
+- Helps users lower their gaze by blocking explicit content on apps and browsers.
+- Runs entirely on-device with no cloud inference.
+- Protects its own settings with a PIN and device-level protections.
+
+---
+
+## How Blocking Works
+
+- **Mode 1 - Static UI scanning**: Reads visible UI text, resource IDs, and content descriptions from the accessibility tree. Near-zero CPU.
+- **Mode 2 - OCR**: Captures HaramClip zones and scans text inside images when Mode 1 detects risk.
+- **Mode 3 - Visual AI**: Runs a NudeNet ONNX model to detect explicit visuals when Mode 3 is enabled.
+
+When a risk is detected:
+- A full-screen veil overlay appears.
+- The offending app is force-closed when possible.
+- The user is returned to the home screen.
+- The app can enter a lockdown timer.
 
 ---
 
 ## Features
 
-### 3-Layer Detection System
-- **Mode 1 - Static Node Scanning**: Reads the Android UI tree. Near-zero CPU. Always on.
-- **Mode 2 - OCR Intelligence**: Fires when Mode 1 detects a risky app. Reads text inside images using ML Kit or the FOSS ONNX OCR engine.
-- **Mode 3 - Visual AI**: Uses the NudeNet v3.4 ONNX model to detect explicit visual content with no text at all.
+- Dashboard mode toggles for Mode 1, Mode 2, and Mode 3.
+- Mode 3 is opt-in per app with per-app overrides.
+- First-run auto-seed: high-risk monitored apps are forced to Mode 3 by default.
+- Always-on browser monitoring (even if Mode 1 is disabled).
+- Domain blocklist (blocks URLs and domains shown in browser UI).
+- Keyword and regex blocklist (local only).
+- Strict protection mode that locks aggressive scan pacing.
+- Battery vs Protection slider plus fine-grained pacing controls.
+- Safe window with PIN gate and auto-resume.
+- Test Protection screen (self-checks, test events, veil preview).
+- Service heartbeat + scan timeline for health visibility.
+- Lockdown timer per app with overrides.
+- Local encrypted history and stats.
 
-### The Veil
-When harmful content is detected:
-- Full screen overlay fires instantly
-- Displays a random Quranic ayah or hadith (Arabic + English) from a bundled collection
-- Offending app is force-closed silently
-- User lands on home screen
-- App enters a configurable lockdown timer
+---
 
-### Security
-- PIN protection with bcrypt hashing
-- Brute force lockout (3 attempts -> 20 min)
-- Forgot PIN via security questions
-- DeviceAdmin anti-uninstall protection
-- Direct Boot compatibility (active before unlock)
-- EncryptedSharedPreferences + SQLCipher database
-- Clock-bypass resistant lockout (`elapsedRealtime`)
+## Tech Stack
 
-### Privacy
-- Zero internet permission in production
-- Zero cloud inference
-- Zero analytics or crash reporting
-- All data stored locally and encrypted
-- `allowBackup` disabled
+- **Language**: Kotlin
+- **UI**: Jetpack Compose (Material 3)
+- **Navigation**: AndroidX Navigation Compose
+- **State & Async**: Kotlin Coroutines + Flow
+- **Storage**: DataStore (Preferences), EncryptedSharedPreferences, SQLCipher
+- **Security**: bcrypt PIN hashing, security questions, Device Admin
+- **Services**: Accessibility Service, Foreground Service, WorkManager
+- **AI / OCR**:
+  - ML Kit (optional, full build)
+  - RapidOCR ONNX (FOSS build)
+  - NudeNet v3.4 ONNX for visual detection
 
-### Performance (Samsung A13 / Exynos 850)
-- Mode 1: ~0% CPU (UI tree reading only)
-- Mode 2: Medium (fires only on risk events)
-- Mode 3: Max 1 inference per 1-2 seconds
-- HaramClip scans only the top 30% + middle 40% of the screen to cut AI processing load
-- Total service RAM target: under 80MB
+---
+
+## Privacy and Security
+
+- No cloud inference.
+- No analytics or crash reporting.
+- All data stored locally and encrypted.
+- Settings protected by PIN and sensitive actions gated.
+- Direct Boot support to keep protection ready before device unlock.
 
 ---
 
 ## Build Flavors
 
-| Flavor | ML Kit | Internet | For |
-|--------|--------|----------|-----|
+| Flavor | ML Kit | Internet | Target |
+|--------|--------|----------|--------|
 | foss | No | Never | F-Droid / de-Googled ROMs |
 | full | Yes (optional) | Debug only | GitHub Releases |
-
----
-
-## Download
-
-| Version | Flavor | Link |
-|---------|--------|------|
-| v1.0.0 | FOSS | [Release pending](https://github.com/darkmaster0345/HaramVeil/releases) |
-| v1.0.0 | Full | [Release pending](https://github.com/darkmaster0345/HaramVeil/releases) |
-| F-Droid | FOSS | Submission pending |
 
 ---
 
@@ -89,7 +94,7 @@ When harmful content is detected:
 - JDK 17+
 - Kotlin 2.x
 
-### Clone and build
+### Build
 
 ```bash
 git clone https://github.com/darkmaster0345/HaramVeil.git
@@ -111,7 +116,7 @@ cd HaramVeil
 | 320n.onnx | NudeNet v3.4 | ~6MB | Default (all devices) |
 | 640m.onnx | NudeNet v3.4 | ~15MB | Enhanced (capable devices) |
 
-Source: https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights
+Source: https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights  
 License: MIT
 
 ---
@@ -121,7 +126,7 @@ License: MIT
 | Permission | Why |
 |-----------|-----|
 | BIND_ACCESSIBILITY_SERVICE | Read the UI tree for Mode 1 detection |
-| SYSTEM_ALERT_WINDOW | Show the Veil overlay on top of all apps |
+| SYSTEM_ALERT_WINDOW | Show the veil overlay on top of all apps |
 | FOREGROUND_SERVICE | Keep protection alive in the background |
 | RECEIVE_BOOT_COMPLETED | Auto-start after device reboot |
 | BIND_DEVICE_ADMIN | Prevent unauthorized uninstallation |
@@ -131,44 +136,28 @@ License: MIT
 
 ---
 
-## Privacy Policy
+## FAQ
 
-HaramVeil performs all content analysis on-device.
-No detection data, usage statistics, or personal
-information is transmitted to any server.
-All user data, including the PIN, keywords, and block history,
-is stored locally in encrypted storage and never leaves
-the device.
+**Q: Does HaramVeil guarantee 100% blocking?**  
+No app can guarantee 100% coverage across every app and every new content type. HaramVeil reduces exposure with layered detection and strong defaults, but some content can still slip through. The Strict Mode + browser domain blocklist provides the strongest coverage.
 
----
+**Q: Does it send data to the cloud?**  
+No. All detection runs locally on-device.
 
-## Battery Usage Guide
+**Q: What should I do if content gets through?**  
+Add the domain to the blocked list, add keywords to the blocklist, and force Mode 3 for the app in Advanced Settings.
 
-| Mode | Expected Battery Impact |
-|------|-------------------------|
-| Mode 1 only | < 1% per hour |
-| Mode 1 + 2 | ~1-2% per hour |
-| Mode 1 + 2 + 3 | ~2-4% per hour |
-
-*Tested on Samsung Galaxy A13. Results vary by device.*
+**Q: Can I pause protection?**  
+Yes. Use Safe Window from the Dashboard. It always requires a PIN and auto-resumes.
 
 ---
 
 ## Known Limitations
 
-- Android 10+ required (API 29)
-- `takeScreenshot()` requires Android 11+; the Mode 2 screenshot path is gracefully skipped on Android 10 / API 29
-- No iOS version (Android Accessibility API only)
-- Device Admin uninstall protection can still be bypassed by factory reset
-- Samsung Knox may interfere on some devices
-
----
-
-## Contributing
-
-This is a solo FOSS project. PRs are welcome.
-Please read the GPL-3.0 license before contributing.
-All contributions must be compatible with GPL-3.0.
+- Android 10+ required (API 29).
+- `takeScreenshot()` requires Android 11+; Mode 2 capture is skipped gracefully on Android 10.
+- Device Admin uninstall resistance can be bypassed by factory reset.
+- Some OEM battery optimizations can still kill background services.
 
 ---
 
@@ -176,18 +165,10 @@ All contributions must be compatible with GPL-3.0.
 
 Copyright (C) 2026 Ubaid ur Rehman
 
-This program is free software: you can redistribute
-it and/or modify it under the terms of the GNU General
-Public License as published by the Free Software
-Foundation, either version 3 of the License, or
-(at your option) any later version.
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
 See [LICENSE](LICENSE) for full terms.
 
 ---
 
-*"Tell the believing men to lower their gaze
-and guard their private parts. That is purer
-for them." - Quran 24:30*
-
----
+"Tell the believing men to lower their gaze and guard their private parts. That is purer for them." - Quran 24:30

@@ -51,6 +51,7 @@ class UITreeScannerTest {
             rootNode = rootNode,
             packageName = "com.instagram.android",
             keywordBlocklist = listOf("nsfw"),
+            isMonitoredApp = true,
         )
 
         assertTrue(result.triggered)

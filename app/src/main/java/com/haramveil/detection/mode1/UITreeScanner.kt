@@ -27,9 +27,15 @@ enum class RiskLevel {
     HIGH,
 }
 
+enum class MatchSource {
+    KEYWORD,
+    DOMAIN,
+}
+
 data class ScanResult(
     val triggered: Boolean,
     val matchedKeyword: String?,
+    val matchSource: MatchSource? = null,
     val packageName: String,
     val riskLevel: RiskLevel,
 )
@@ -40,29 +46,47 @@ class UITreeScanner {
         rootNode: AccessibilityNodeInfo?,
         packageName: String,
         keywordBlocklist: List<String>,
+        domainBlocklist: List<String>,
+        isMonitoredApp: Boolean,
     ): ScanResult {
         if (rootNode == null) {
             return ScanResult(
                 triggered = false,
                 matchedKeyword = null,
+                matchSource = null,
                 packageName = packageName,
                 riskLevel = RiskLevel.LOW,
             )
         }
 
         val extractedSignals = collectVisibleSignals(rootNode)
+        val matchedDomain = if (isBrowserPackage(packageName)) {
+            findMatchedDomain(
+                extractedSignals = extractedSignals,
+                domainBlocklist = domainBlocklist,
+            )
+        } else {
+            null
+        }
         val matchedKeyword = findMatchedKeyword(
             extractedSignals = extractedSignals,
             keywordBlocklist = keywordBlocklist,
         )
+        val matchedToken = matchedDomain ?: matchedKeyword
+        val matchSource = when {
+            matchedDomain != null -> MatchSource.DOMAIN
+            matchedKeyword != null -> MatchSource.KEYWORD
+            else -> null
+        }
         val riskLevel = when {
-            matchedKeyword != null -> RiskLevel.HIGH
-            isHighRiskPackage(packageName) -> RiskLevel.MEDIUM
+            matchedToken != null -> RiskLevel.HIGH
+            isHighRiskPackage(packageName) || isMonitoredApp -> RiskLevel.MEDIUM
             else -> RiskLevel.LOW
         }
         return ScanResult(
             triggered = riskLevel != RiskLevel.LOW,
-            matchedKeyword = matchedKeyword,
+            matchedKeyword = matchedToken,
+            matchSource = matchSource,
             packageName = packageName,
             riskLevel = riskLevel,
         )
@@ -87,8 +111,13 @@ class UITreeScanner {
     fun isHighRiskPackage(packageName: String): Boolean {
         val normalizedPackage = packageName.lowercase(Locale.ROOT)
         return normalizedPackage in HighRiskPackages ||
-            normalizedPackage.contains("browser") ||
-            normalizedPackage.contains("video")
+            HighRiskKeywords.any { keyword -> normalizedPackage.contains(keyword) }
+    }
+
+    fun isBrowserPackage(packageName: String): Boolean {
+        val normalizedPackage = packageName.lowercase(Locale.ROOT)
+        return normalizedPackage in BrowserPackages ||
+            BrowserKeywords.any { keyword -> normalizedPackage.contains(keyword) }
     }
 
     private fun collectVisibleSignals(
@@ -167,8 +196,78 @@ class UITreeScanner {
         }
     }
 
+    private fun findMatchedDomain(
+        extractedSignals: ExtractedUiSignals,
+        domainBlocklist: List<String>,
+    ): String? {
+        if (domainBlocklist.isEmpty()) {
+            return null
+        }
+
+        val rawSignals = buildList {
+            addAll(extractedSignals.visibleTexts)
+            addAll(extractedSignals.contentDescriptions)
+        }
+        val candidateDomains = buildList {
+            rawSignals.forEach { signal ->
+                val normalizedSignal = signal.trim()
+                if (normalizedSignal.isNotEmpty()) {
+                    add(normalizedSignal)
+                }
+                extractDomainsFromText(normalizedSignal).forEach { domain ->
+                    add(domain)
+                }
+            }
+        }
+
+        return domainBlocklist.firstNotNullOfOrNull { entry ->
+            val trimmedEntry = entry.trim()
+            if (trimmedEntry.isEmpty()) {
+                return@firstNotNullOfOrNull null
+            }
+            if (looksLikeDomainRegex(trimmedEntry)) {
+                val regex = runCatching { Regex(trimmedEntry, RegexOption.IGNORE_CASE) }.getOrNull()
+                    ?: return@firstNotNullOfOrNull null
+                candidateDomains.firstOrNull { candidate ->
+                    regex.containsMatchIn(candidate)
+                }?.let { trimmedEntry }
+            } else {
+                val normalizedEntry = normalizeDomainToken(trimmedEntry)
+                if (normalizedEntry.isEmpty()) {
+                    return@firstNotNullOfOrNull null
+                }
+                candidateDomains.firstOrNull { candidate ->
+                    val normalizedCandidate = normalizeDomainToken(candidate)
+                    normalizedCandidate.contains(normalizedEntry) ||
+                        candidate.contains(other = normalizedEntry, ignoreCase = true)
+                }?.let { normalizeDomainToken(it) }
+            }
+        }
+    }
+
     private fun looksLikeRegex(entry: String): Boolean =
         entry.any { character -> character in RegexMetaCharacters }
+
+    private fun looksLikeDomainRegex(entry: String): Boolean =
+        entry.any { character -> character in DomainRegexMetaCharacters }
+
+    private fun extractDomainsFromText(text: String): List<String> =
+        DomainRegex.findAll(text.lowercase(Locale.ROOT))
+            .map { normalizeDomainToken(it.value) }
+            .filter(String::isNotBlank)
+            .toList()
+
+    private fun normalizeDomainToken(value: String): String {
+        val trimmed = value.trim().lowercase(Locale.ROOT)
+        val withoutScheme = trimmed
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .removePrefix("www.")
+        val domain = withoutScheme.takeWhile { char ->
+            char.isLetterOrDigit() || char == '.' || char == '-'
+        }
+        return domain.trim('.')
+    }
 
     private companion object {
         val RegexMetaCharacters = setOf(
@@ -188,14 +287,18 @@ class UITreeScanner {
             '}',
         )
 
+        val DomainRegexMetaCharacters = RegexMetaCharacters - '.'
+
         val HighRiskPackages: Set<String> = setOf(
             "com.instagram.android",
             "com.zhiliaoapp.musically",
             "com.android.chrome",
+            "com.google.android.apps.chrome",
             "org.mozilla.firefox",
             "com.sec.android.app.sbrowser",
             "com.snapchat.android",
             "com.twitter.android",
+            "com.xcorp.android",
             "com.google.android.youtube",
             "com.reddit.frontpage",
             "com.opera.browser",
@@ -203,7 +306,53 @@ class UITreeScanner {
             "com.duckduckgo.mobile.android",
             "org.telegram.messenger",
             "com.whatsapp",
+            "com.microsoft.emmx",
         )
+
+        val HighRiskKeywords: List<String> = listOf(
+            "browser",
+            "video",
+            "instagram",
+            "tiktok",
+            "twitter",
+            "xcorp",
+            "youtube",
+            "reddit",
+            "opera",
+            "brave",
+            "duckduckgo",
+            "telegram",
+            "whatsapp",
+            "chrome",
+            "firefox",
+            "samsunginternet",
+            "snapchat",
+            "edge",
+        )
+
+        val BrowserPackages: Set<String> = setOf(
+            "com.android.chrome",
+            "com.google.android.apps.chrome",
+            "org.mozilla.firefox",
+            "com.sec.android.app.sbrowser",
+            "com.opera.browser",
+            "com.brave.browser",
+            "com.duckduckgo.mobile.android",
+            "com.microsoft.emmx",
+        )
+
+        val BrowserKeywords: List<String> = listOf(
+            "browser",
+            "chrome",
+            "firefox",
+            "samsunginternet",
+            "opera",
+            "brave",
+            "duckduckgo",
+            "edge",
+        )
+
+        val DomainRegex = Regex("([a-z0-9-]+\\.)+[a-z]{2,}")
     }
 }
 

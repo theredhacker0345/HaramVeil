@@ -110,18 +110,23 @@ class Mode2Processor(
             try {
                 val ocrEngine = ocrEngineSelector.select(settings.selectedTextEngine)
                 val ocrResult = ocrEngine.extractText(captureBitmap)
+                val matchedDomain = findMatchedDomain(
+                    extractedText = ocrResult.text,
+                    domainBlocklist = settings.domainBlocklist,
+                )
                 val matchedKeyword = findMatchedKeyword(
                     extractedText = ocrResult.text,
                     keywordBlocklist = settings.keywordBlocklist,
                 )
+                val matchedToken = matchedDomain ?: matchedKeyword
 
-                if (matchedKeyword != null) {
+                if (matchedToken != null) {
                     val matchDetails =
-                        "OCR matched keyword \"$matchedKeyword\" using ${ocrEngine.label()} in ${ocrResult.processingTimeMs}ms."
+                        "OCR matched \"$matchedToken\" using ${ocrEngine.label()} in ${ocrResult.processingTimeMs}ms."
                     statsRepository.logBlock(
                         packageName = trigger.scanResult.packageName,
                         mode = 2,
-                        detail = matchedKeyword,
+                        detail = matchedToken,
                         lockdownMs = settings.lockdownDurationMs,
                     )
                     DetectionBus.publishMode2Triggered(
@@ -176,6 +181,62 @@ class Mode2Processor(
     private fun looksLikeRegex(entry: String): Boolean =
         entry.any { character -> character in RegexMetaCharacters }
 
+    private fun looksLikeDomainRegex(entry: String): Boolean =
+        entry.any { character -> character in DomainRegexMetaCharacters }
+
+    private fun findMatchedDomain(
+        extractedText: String,
+        domainBlocklist: List<String>,
+    ): String? {
+        if (extractedText.isBlank() || domainBlocklist.isEmpty()) {
+            return null
+        }
+
+        val candidates = buildList {
+            add(extractedText)
+            DomainRegex.findAll(extractedText.lowercase())
+                .map { normalizeDomainToken(it.value) }
+                .filter(String::isNotBlank)
+                .forEach { add(it) }
+        }
+
+        return domainBlocklist.firstNotNullOfOrNull { entry ->
+            val trimmedEntry = entry.trim()
+            if (trimmedEntry.isEmpty()) {
+                return@firstNotNullOfOrNull null
+            }
+            if (looksLikeDomainRegex(trimmedEntry)) {
+                val regex = runCatching { Regex(trimmedEntry, RegexOption.IGNORE_CASE) }.getOrNull()
+                    ?: return@firstNotNullOfOrNull null
+                candidates.firstOrNull { candidate ->
+                    regex.containsMatchIn(candidate)
+                }?.let { trimmedEntry }
+            } else {
+                val normalizedEntry = normalizeDomainToken(trimmedEntry)
+                if (normalizedEntry.isEmpty()) {
+                    return@firstNotNullOfOrNull null
+                }
+                candidates.firstOrNull { candidate ->
+                    val normalizedCandidate = normalizeDomainToken(candidate)
+                    normalizedCandidate.contains(normalizedEntry) ||
+                        candidate.contains(other = normalizedEntry, ignoreCase = true)
+                }?.let { normalizeDomainToken(it) }
+            }
+        }
+    }
+
+    private fun normalizeDomainToken(value: String): String {
+        val trimmed = value.trim().lowercase()
+        val withoutScheme = trimmed
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .removePrefix("www.")
+        val domain = withoutScheme.takeWhile { char ->
+            char.isLetterOrDigit() || char == '.' || char == '-'
+        }
+        return domain.trim('.')
+    }
+
     private fun recycleBitmap(bitmap: Bitmap) {
         if (!bitmap.isRecycled) {
             bitmap.recycle()
@@ -206,5 +267,8 @@ class Mode2Processor(
             '{',
             '}',
         )
+
+        val DomainRegexMetaCharacters = RegexMetaCharacters - '.'
+        val DomainRegex = Regex("([a-z0-9-]+\\.)+[a-z]{2,}")
     }
 }

@@ -28,6 +28,8 @@ internal object HaramVeilPreferenceKeys {
     const val DefaultLatencyBudgetMs = 1_500L
     const val DefaultFrameSkipIntervalMs = 500L
     const val DefaultMode3InferenceIntervalMs = 1_000L
+    const val StrictFrameSkipIntervalMs = 250L
+    const val StrictMode3InferenceIntervalMs = 1_000L
     const val DefaultLockdownDurationMs = 15 * 60 * 1_000L
     const val DefaultTopCapturePercent = 30
     const val DefaultMiddleCapturePercent = 40
@@ -35,6 +37,7 @@ internal object HaramVeilPreferenceKeys {
 
     val OnboardingComplete = booleanPreferencesKey("onboarding_complete")
     val ProtectionEnabled = booleanPreferencesKey("protection_enabled")
+    val ProtectionPauseUntilMs = longPreferencesKey("protection_pause_until_ms")
     val Benchmark320LatencyMs = longPreferencesKey("benchmark_320_latency_ms")
     val Benchmark640LatencyMs = longPreferencesKey("benchmark_640_latency_ms")
     val BenchmarkLatencyBudgetMs = longPreferencesKey("benchmark_latency_budget_ms")
@@ -45,11 +48,15 @@ internal object HaramVeilPreferenceKeys {
     val Mode1Enabled = booleanPreferencesKey("mode_1_enabled")
     val Mode2Enabled = booleanPreferencesKey("mode_2_enabled")
     val Mode3Enabled = booleanPreferencesKey("mode_3_enabled")
+    val Mode3ForcedPackages = stringSetPreferencesKey("mode3_forced_packages")
+    val Mode3ForcedSeeded = booleanPreferencesKey("mode3_forced_seeded")
     val ModeConfigurationSaved = booleanPreferencesKey("mode_configuration_saved")
     val SelectedPackages = stringSetPreferencesKey("selected_monitored_packages")
     val AppSelectionSaved = booleanPreferencesKey("app_selection_saved")
     val SecuritySetupSaved = booleanPreferencesKey("security_setup_saved")
     val KeywordBlocklist = stringSetPreferencesKey("keyword_blocklist")
+    val DomainBlocklist = stringSetPreferencesKey("domain_blocklist")
+    val StrictModeEnabled = booleanPreferencesKey("strict_mode_enabled")
     val FrameSkipIntervalMs = longPreferencesKey("frame_skip_interval_ms")
     val Mode3InferenceIntervalMs = longPreferencesKey("mode3_inference_interval_ms")
     val LockdownDurationMs = longPreferencesKey("lockdown_duration_ms")

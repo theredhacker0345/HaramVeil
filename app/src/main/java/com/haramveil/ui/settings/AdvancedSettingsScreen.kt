@@ -74,6 +74,7 @@ fun AdvancedSettingsScreen(
     mode1Enabled: Boolean,
     mode2Enabled: Boolean,
     mode3Enabled: Boolean,
+    strictModeEnabled: Boolean,
     frameSkipIntervalMs: Int,
     mode3InferenceIntervalMs: Int,
     topCapturePercent: Int,
@@ -82,6 +83,7 @@ fun AdvancedSettingsScreen(
     onMode1Changed: (Boolean) -> Unit,
     onMode2Changed: (Boolean) -> Unit,
     onMode3Changed: (Boolean) -> Unit,
+    onStrictModeChanged: (Boolean) -> Unit,
     onVisualModelSelected: (VisualModelOption) -> Unit,
     onFrameSkipIntervalChanged: (Int) -> Unit,
     onMode3InferenceIntervalChanged: (Int) -> Unit,
@@ -144,6 +146,14 @@ fun AdvancedSettingsScreen(
         }
         item {
             SectionLabel(text = "Per-app overrides")
+        }
+        item {
+            Text(
+                text = "Mode 3 runs only for apps you explicitly force to Mode 3 here.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
         if (appConfigs.isEmpty()) {
             item {
@@ -233,12 +243,49 @@ fun AdvancedSettingsScreen(
                         )
                     }
                 }
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+                )
+                AdvancedToggleRow(
+                    label = "Strict protection mode",
+                    description = "Locks scan pacing to the most aggressive values for stronger blocking.",
+                    checked = strictModeEnabled,
+                    onCheckedChange = onStrictModeChanged,
+                )
+                if (strictModeEnabled) {
+                    StatusPill(
+                        label = "Strict mode active: scan intervals locked to minimums",
+                        backgroundColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
+                        contentColor = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+                val batteryProtectionBlend = remember(frameSkipIntervalMs, mode3InferenceIntervalMs) {
+                    val frameNorm = ((frameSkipIntervalMs - 250f) / 1750f).coerceIn(0f, 1f)
+                    val mode3Norm = ((mode3InferenceIntervalMs - 1000f) / 1000f).coerceIn(0f, 1f)
+                    (frameNorm + mode3Norm) / 2f
+                }
+                SliderControl(
+                    label = "Battery vs Protection",
+                    description = "Lower keeps scans frequent (max protection). Higher saves battery by spacing scans.",
+                    value = batteryProtectionBlend,
+                    valueRange = 0f..1f,
+                    steps = 4,
+                    enabled = !strictModeEnabled,
+                    onValueChange = { blend ->
+                        val frameSkip = lerp(250f, 2000f, blend).toInt()
+                        val mode3Interval = lerp(1000f, 2000f, blend).toInt()
+                        onFrameSkipIntervalChanged(frameSkip)
+                        onMode3InferenceIntervalChanged(mode3Interval)
+                    },
+                )
                 SliderControl(
                     label = "Frame skip interval",
                     description = "$frameSkipIntervalMs ms debounce for Accessibility UI-tree scans",
                     value = frameSkipIntervalMs.toFloat(),
                     valueRange = 250f..2000f,
                     steps = 6,
+                    enabled = !strictModeEnabled,
                     onValueChange = { onFrameSkipIntervalChanged(it.toInt()) },
                 )
                 SliderControl(
@@ -247,6 +294,7 @@ fun AdvancedSettingsScreen(
                     value = mode3InferenceIntervalMs.toFloat(),
                     valueRange = 1000f..2000f,
                     steps = 3,
+                    enabled = !strictModeEnabled,
                     onValueChange = { onMode3InferenceIntervalChanged(it.toInt()) },
                 )
             }
@@ -456,6 +504,7 @@ private fun SliderControl(
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int,
+    enabled: Boolean = true,
     onValueChange: (Float) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -475,6 +524,13 @@ private fun SliderControl(
             onValueChange = onValueChange,
             valueRange = valueRange,
             steps = steps,
+            enabled = enabled,
         )
     }
 }
+
+private fun lerp(
+    start: Float,
+    end: Float,
+    fraction: Float,
+): Float = start + (end - start) * fraction

@@ -23,6 +23,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.Process
 import android.os.SystemClock
+import com.haramveil.data.local.HaramVeilPreferenceKeys
 import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.data.local.StatsRepository
 import com.haramveil.data.models.ProtectionSettings
@@ -109,8 +110,13 @@ class Mode3Processor(
                 return@withContext
             }
 
+            val configuredRateLimitMs = if (settings.strictModeEnabled) {
+                HaramVeilPreferenceKeys.StrictMode3InferenceIntervalMs
+            } else {
+                settings.mode3InferenceIntervalMs
+            }
             val activeRateLimitMs = thermalRateLimitOverrideMs
-                ?: settings.mode3InferenceIntervalMs.coerceIn(minimumValue = 1_000L, maximumValue = 2_000L)
+                ?: configuredRateLimitMs.coerceIn(minimumValue = 1_000L, maximumValue = 2_000L)
             val now = SystemClock.elapsedRealtime()
             if (now - lastInferenceStartedAtMs < activeRateLimitMs) {
                 DetectionBus.publishMode3Clear(
@@ -162,7 +168,7 @@ class Mode3Processor(
                 val detectionResult = inferenceEngine.evaluate(onnxOutput)
                 updateThermalGuard(
                     packageName = trigger.scanResult.packageName,
-                    configuredRateLimitMs = settings.mode3InferenceIntervalMs,
+                    configuredRateLimitMs = configuredRateLimitMs,
                     inferenceTimeMs = onnxOutput.inferenceTimeMs,
                 )
 

@@ -23,15 +23,18 @@ import android.accessibilityservice.AccessibilityService
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityEvent
+import com.haramveil.data.local.HaramVeilPreferenceKeys
 import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.data.local.StatsRepository
 import com.haramveil.data.models.ProtectionSettings
+import com.haramveil.detection.mode1.MatchSource
 import com.haramveil.detection.mode1.RiskLevel
 import com.haramveil.detection.mode2.Mode2Processor
 import com.haramveil.detection.mode1.UITreeScanner
 import com.haramveil.detection.mode3.Mode3Processor
 import com.haramveil.overlay.VeilOverlayController
 import com.haramveil.security.AppLockdownManager
+import com.haramveil.service.ProtectionBootstrapStore
 import com.haramveil.utils.DetectionBus
 import com.haramveil.utils.DetectionTriggerMode
 import com.haramveil.utils.DispatcherProvider
@@ -54,6 +57,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     private lateinit var protectionPreferencesRepository: ProtectionPreferencesRepository
     private lateinit var appLockdownManager: AppLockdownManager
     private lateinit var statsRepository: StatsRepository
+    private lateinit var bootstrapStore: ProtectionBootstrapStore
     private val protectionSettingsState = MutableStateFlow(ProtectionSettings())
     private var collectorsStarted = false
     private lateinit var throttleManager: ThrottleManager
@@ -61,12 +65,14 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     private lateinit var mode3Processor: Mode3Processor
     private var processedMode1EventsInWindow = 0
     private var processedMetricsWindowStartedAtMs = SystemClock.elapsedRealtime()
+    private var lastScanHeartbeatMs = 0L
 
     override fun onCreate() {
         super.onCreate()
         protectionPreferencesRepository = ProtectionPreferencesRepository(applicationContext)
         appLockdownManager = AppLockdownManager(applicationContext)
         statsRepository = StatsRepository.getInstance(applicationContext)
+        bootstrapStore = ProtectionBootstrapStore(applicationContext)
         throttleManager = ThrottleManager(
             scope = serviceScope,
             dispatcherProvider = dispatcherProvider,
@@ -127,6 +133,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             ?: rootInActiveWindow?.packageName?.toString()?.takeIf(String::isNotBlank)
             ?: return
 
+        val isBrowserPackage = uiTreeScanner.isBrowserPackage(packageName)
+
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             DetectionBus.publishWindowStateObserved(
                 packageName = packageName,
@@ -155,11 +163,11 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             }
         }
 
-        if (!currentSettings.mode1Enabled) {
+        if (!currentSettings.mode1Enabled && !isBrowserPackage) {
             return
         }
 
-        if (packageName !in currentSettings.monitoredPackages) {
+        if (!isBrowserPackage && packageName !in currentSettings.monitoredPackages) {
             return
         }
 
@@ -184,7 +192,12 @@ class HaramVeilAccessibilityService : AccessibilityService() {
         serviceScope.launch(dispatcherProvider.io) {
             protectionPreferencesRepository.settingsFlow.collectLatest { settings ->
                 protectionSettingsState.value = settings
-                throttleManager.updateDebounceMs(settings.frameSkipIntervalMs)
+                val effectiveFrameSkipMs = if (settings.strictModeEnabled) {
+                    HaramVeilPreferenceKeys.StrictFrameSkipIntervalMs
+                } else {
+                    settings.frameSkipIntervalMs
+                }
+                throttleManager.updateDebounceMs(effectiveFrameSkipMs)
                 if (settings.protectionEnabled && settings.mode2Enabled) {
                     mode2Processor.start()
                 } else {
@@ -211,11 +224,18 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     ) {
         try {
             recordDebugProcessedEvent()
+            recordScanHeartbeat()
             val currentSettings = protectionSettingsState.value
+            val isHighRiskApp = uiTreeScanner.isHighRiskPackage(trigger.packageName)
+            val isBrowserApp = uiTreeScanner.isBrowserPackage(trigger.packageName)
+            val isMonitoredApp = isBrowserApp || trigger.packageName in currentSettings.monitoredPackages
+            val isMode3Forced = trigger.packageName in currentSettings.mode3ForcedPackages
             val scanResult = uiTreeScanner.scan(
                 rootNode = trigger.rootNode,
                 packageName = trigger.packageName,
                 keywordBlocklist = currentSettings.keywordBlocklist,
+                domainBlocklist = currentSettings.domainBlocklist,
+                isMonitoredApp = isMonitoredApp,
             )
 
             if (!scanResult.triggered) {
@@ -223,8 +243,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             }
 
             val wakeMode2 = currentSettings.mode2Enabled
-            val wakeMode3 = scanResult.riskLevel == RiskLevel.HIGH && currentSettings.mode3Enabled
-            val matchDetails = buildMatchDetails(scanResult)
+            val wakeMode3 = currentSettings.mode3Enabled && isMode3Forced
+            val matchDetails = buildMatchDetails(scanResult, isHighRiskApp, isMonitoredApp)
 
             scanResult.matchedKeyword?.let { matchedKeyword ->
                 statsRepository.logBlock(
@@ -284,10 +304,23 @@ class HaramVeilAccessibilityService : AccessibilityService() {
 
     private fun buildMatchDetails(
         scanResult: com.haramveil.detection.mode1.ScanResult,
+        isHighRiskApp: Boolean,
+        isMonitoredApp: Boolean,
     ): String {
         return scanResult.matchedKeyword?.let { keyword ->
-            "Matched keyword \"$keyword\" in visible UI content."
-        } ?: "Monitored package appears on the high-risk app list."
+            when (scanResult.matchSource) {
+                MatchSource.DOMAIN ->
+                    "Blocked domain \"$keyword\" appeared in browser content."
+                else ->
+                    "Matched keyword \"$keyword\" in visible UI content."
+            }
+        } ?: if (isHighRiskApp) {
+            "Monitored package appears on the high-risk app list."
+        } else if (isMonitoredApp) {
+            "Monitored package is enabled for scanning."
+        } else {
+            "Package appears on-screen for scanning."
+        }
     }
 
     private fun recordDebugProcessedEvent() {
@@ -308,8 +341,18 @@ class HaramVeilAccessibilityService : AccessibilityService() {
         processedMetricsWindowStartedAtMs = SystemClock.elapsedRealtime()
     }
 
+    private fun recordScanHeartbeat() {
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastScanHeartbeatMs < ScanHeartbeatDebounceMs) {
+            return
+        }
+        lastScanHeartbeatMs = nowMs
+        bootstrapStore.updateScanHeartbeat(nowMs)
+    }
+
     private companion object {
         const val LogTag = "HaramVeilMode1"
         const val DebugMetricsWindowMs = 60_000L
+        const val ScanHeartbeatDebounceMs = 5_000L
     }
 }

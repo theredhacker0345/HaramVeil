@@ -25,6 +25,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.haramveil.accessibility.isHaramVeilAccessibilityServiceEnabled
+import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.utils.RootAccessHelper
 import java.util.concurrent.TimeUnit
 
@@ -35,7 +36,22 @@ class ProtectionHealthWorker(
     override suspend fun doWork(): Result {
         val context = applicationContext
         val bootstrapStore = ProtectionBootstrapStore(context)
-        if (!bootstrapStore.isBootstrapReady() || !bootstrapStore.isProtectionEnabled()) {
+        if (!bootstrapStore.isBootstrapReady()) {
+            return Result.success()
+        }
+
+        val repository = ProtectionPreferencesRepository(context)
+        val settings = repository.readSettings()
+        val nowMs = System.currentTimeMillis()
+        if (settings.protectionPauseUntilMs > 0L) {
+            if (nowMs >= settings.protectionPauseUntilMs) {
+                repository.resumeProtectionAfterPause()
+                HaramVeilProtectionController.start(context)
+            }
+            return Result.success()
+        }
+
+        if (!bootstrapStore.isProtectionEnabled()) {
             return Result.success()
         }
 

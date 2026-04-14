@@ -77,6 +77,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.haramveil.accessibility.isHaramVeilAccessibilityServiceEnabled
 import com.haramveil.accessibility.openHaramVeilAccessibilitySettings
+import com.haramveil.data.local.DefaultDomainBlocklist
 import com.haramveil.data.local.DefaultKeywordBlocklist
 import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.data.local.StatsRepository
@@ -94,11 +95,13 @@ import com.haramveil.security.PinManager
 import com.haramveil.security.SecurityQuestionsManager
 import com.haramveil.service.HaramVeilProtectionController
 import com.haramveil.service.ProtectionBootstrapStore
+import com.haramveil.service.ProtectionResumeScheduler
 import com.haramveil.ui.dashboard.DashboardRoute
 import com.haramveil.ui.dashboard.DashboardScreen
 import com.haramveil.ui.settings.AdvancedSettingsScreen
 import com.haramveil.ui.settings.SettingsRoute
 import com.haramveil.ui.settings.SettingsScreen
+import com.haramveil.ui.settings.TestDetectionScreen
 import com.haramveil.ui.security.ChangePINScreen
 import com.haramveil.ui.security.PinActionGateDialog
 import com.haramveil.ui.security.PinGateComposable
@@ -137,7 +140,10 @@ private enum class MainDestination(
 private enum class SensitiveAction {
     DISABLE_PROTECTION,
     CLEAR_HISTORY,
+    SAFE_WINDOW,
 }
+
+private const val SafeWindowDefaultMs = 15 * 60 * 1_000L
 
 @Composable
 fun HaramVeilMainShell(
@@ -193,13 +199,18 @@ fun HaramVeilMainShell(
     ) {
         ProtectionSettings(
             protectionEnabled = true,
+            protectionPauseUntilMs = 0L,
             monitoredPackages = selectedPackages,
             keywordBlocklist = DefaultKeywordBlocklist.entries,
             mode1Enabled = mode1Enabled,
             mode2Enabled = mode2Enabled,
             mode3Enabled = mode3Enabled,
+            mode3ForcedPackages = emptySet(),
+            mode3ForcedSeeded = false,
+            strictModeEnabled = false,
             selectedTextEngine = selectedTextEngine,
             selectedVisualModel = selectedVisualModel,
+            domainBlocklist = DefaultDomainBlocklist.entries,
         )
     }
     val protectionSettings by protectionPreferencesRepository.settingsFlow.collectAsStateWithLifecycle(
@@ -214,16 +225,21 @@ fun HaramVeilMainShell(
         context = context,
     )
     val monitoredPackages = protectionSettings.monitoredPackages.ifEmpty { selectedPackages }
-    val initialAppConfigs = remember(installedApps, monitoredPackages) {
+    val mode3ForcedPackages = protectionSettings.mode3ForcedPackages
+    val initialAppConfigs = remember(installedApps, monitoredPackages, mode3ForcedPackages) {
         buildInitialAppConfigs(
             installedApps = installedApps,
             selectedPackages = monitoredPackages,
+            mode3ForcedPackages = mode3ForcedPackages,
         )
     }
     var appConfigs by remember(initialAppConfigs) { mutableStateOf(initialAppConfigs) }
     var settingsUnlocked by rememberSaveable { mutableStateOf(false) }
     var pendingSensitiveAction by remember { mutableStateOf<SensitiveAction?>(null) }
+    var pendingSafeWindowDurationMs by remember { mutableStateOf<Long?>(null) }
     var foregroundServiceActive by remember { mutableStateOf(bootstrapStore.isServiceAlive()) }
+    var lastServiceHeartbeatMs by remember { mutableStateOf(bootstrapStore.lastServiceHeartbeatMs()) }
+    var lastScanHeartbeatMs by remember { mutableStateOf(bootstrapStore.lastScanHeartbeatMs()) }
     var deviceAdminEnabled by remember { mutableStateOf(DeviceAdminController.isEnabled(context.applicationContext)) }
     var showBatteryOptimizationDialog by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -238,9 +254,14 @@ fun HaramVeilMainShell(
         LockdownDurationOption.fromDurationMs(protectionSettings.lockdownDurationMs)
     }
     val keywordBlocklist = protectionSettings.keywordBlocklist
+    val domainBlocklist = protectionSettings.domainBlocklist
     val mode1OverrideEnabled = protectionSettings.mode1Enabled
     val mode2OverrideEnabled = protectionSettings.mode2Enabled
     val mode3OverrideEnabled = protectionSettings.mode3Enabled
+    val strictModeEnabled = protectionSettings.strictModeEnabled
+    val mode3ForcedSeeded = protectionSettings.mode3ForcedSeeded
+    val protectionPauseUntilMs = protectionSettings.protectionPauseUntilMs
+        .takeIf { it > System.currentTimeMillis() } ?: 0L
     val frameSkipIntervalMs = protectionSettings.frameSkipIntervalMs.toFloat()
     val mode3InferenceIntervalMs = protectionSettings.mode3InferenceIntervalMs.toFloat()
     val statsRetentionDays = protectionSettings.statsRetentionDays
@@ -270,6 +291,11 @@ fun HaramVeilMainShell(
             event.toUiModel(knownAppsByPackage)
         }
     }
+    val lastBlockEvent = storedBlockEvents.firstOrNull()
+    val lastBlockTimestampMs = lastBlockEvent?.timestamp ?: 0L
+    val lastBlockAppLabel = lastBlockEvent?.let { event ->
+        (knownAppsByPackage[event.packageName]?.label ?: event.appName).ifBlank { event.packageName }
+    }.orEmpty()
     val mostBlockedApp = remember(mostBlockedAppRecord, knownAppsByPackage) {
         mostBlockedAppRecord?.toUiModel(knownAppsByPackage)
     }
@@ -291,6 +317,7 @@ fun HaramVeilMainShell(
     val selectedBottomDestination = when (currentRoute) {
         SettingsRoute.advancedRoute,
         SettingsRoute.changePinRoute,
+        SettingsRoute.testRoute,
         -> MainDestination.Settings.route
         else -> currentRoute
     }
@@ -331,6 +358,27 @@ fun HaramVeilMainShell(
         }
     }
 
+    LaunchedEffect(
+        mode3ForcedSeeded,
+        mode3ForcedPackages,
+        monitoredPackages,
+        installedApps,
+    ) {
+        if (mode3ForcedSeeded || installedApps.isEmpty()) {
+            return@LaunchedEffect
+        }
+        if (mode3ForcedPackages.isEmpty()) {
+            val defaultForced = installedApps
+                .filter { it.isHighRisk && it.packageName in monitoredPackages }
+                .map { it.packageName }
+                .toSet()
+            if (defaultForced.isNotEmpty()) {
+                protectionPreferencesRepository.saveMode3ForcedPackages(defaultForced)
+            }
+        }
+        protectionPreferencesRepository.markMode3ForcedSeeded()
+    }
+
     LaunchedEffect(knownAppsByPackage) {
         while (true) {
             activeLockdowns = appLockdownManager.activeLockdowns().map { lockdown ->
@@ -342,6 +390,8 @@ fun HaramVeilMainShell(
                 )
             }
             foregroundServiceActive = bootstrapStore.isServiceAlive()
+            lastServiceHeartbeatMs = bootstrapStore.lastServiceHeartbeatMs()
+            lastScanHeartbeatMs = bootstrapStore.lastScanHeartbeatMs()
             deviceAdminEnabled = DeviceAdminController.isEnabled(context.applicationContext)
             delay(1_000L)
         }
@@ -431,6 +481,14 @@ fun HaramVeilMainShell(
                             protectionEnabled = protectionSettings.protectionEnabled,
                             activeModeSummary = activeModeSummary,
                             activeModeCount = activeModeCount,
+                            mode1Enabled = mode1OverrideEnabled,
+                            mode2Enabled = mode2OverrideEnabled,
+                            mode3Enabled = mode3OverrideEnabled,
+                            lastServiceHeartbeatMs = lastServiceHeartbeatMs,
+                            lastScanHeartbeatMs = lastScanHeartbeatMs,
+                            safeWindowActiveUntilMs = protectionPauseUntilMs,
+                            lastBlockTimestampMs = lastBlockTimestampMs,
+                            lastBlockAppLabel = lastBlockAppLabel,
                             monitoredAppsCount = monitoredApps.size,
                             blocksToday = todayCount,
                             accessibilityServiceActive = accessibilityServiceActive,
@@ -448,6 +506,53 @@ fun HaramVeilMainShell(
                             },
                             onRequestProtectionDisable = {
                                 pendingSensitiveAction = SensitiveAction.DISABLE_PROTECTION
+                            },
+                            onMode1Changed = { enabled ->
+                                scope.launch {
+                                    protectionPreferencesRepository.saveModeConfiguration(
+                                        textEngine = activeTextEngine,
+                                        visualModel = activeVisualModel,
+                                        mode1Enabled = enabled,
+                                        mode2Enabled = mode2OverrideEnabled,
+                                        mode3Enabled = mode3OverrideEnabled,
+                                    )
+                                }
+                            },
+                            onMode2Changed = { enabled ->
+                                scope.launch {
+                                    protectionPreferencesRepository.saveModeConfiguration(
+                                        textEngine = activeTextEngine,
+                                        visualModel = activeVisualModel,
+                                        mode1Enabled = mode1OverrideEnabled,
+                                        mode2Enabled = enabled,
+                                        mode3Enabled = mode3OverrideEnabled,
+                                    )
+                                }
+                            },
+                            onMode3Changed = { enabled ->
+                                scope.launch {
+                                    protectionPreferencesRepository.saveModeConfiguration(
+                                        textEngine = activeTextEngine,
+                                        visualModel = activeVisualModel,
+                                        mode1Enabled = mode1OverrideEnabled,
+                                        mode2Enabled = mode2OverrideEnabled,
+                                        mode3Enabled = enabled,
+                                    )
+                                }
+                            },
+                            onRestartProtection = {
+                                HaramVeilProtectionController.start(context.applicationContext)
+                            },
+                            onStartSafeWindow = { durationMs ->
+                                pendingSafeWindowDurationMs = durationMs
+                                pendingSensitiveAction = SensitiveAction.SAFE_WINDOW
+                            },
+                            onResumeProtection = {
+                                scope.launch {
+                                    ProtectionResumeScheduler.cancel(context.applicationContext)
+                                    protectionPreferencesRepository.resumeProtectionAfterPause()
+                                    HaramVeilProtectionController.start(context.applicationContext)
+                                }
                             },
                             onOpenAccessibilitySettings = {
                                 openHaramVeilAccessibilitySettings(context)
@@ -496,6 +601,7 @@ fun HaramVeilMainShell(
                                 selectedEngine = activeTextEngine,
                                 globalLockdownDuration = globalLockdownDuration,
                                 keywordBlocklist = keywordBlocklist,
+                                domainBlocklist = domainBlocklist,
                                 statsRetentionDays = statsRetentionDays,
                                 deviceAdminEnabled = deviceAdminEnabled,
                                 onOpenAdvancedSettings = {
@@ -503,6 +609,9 @@ fun HaramVeilMainShell(
                                 },
                                 onOpenChangePin = {
                                     navController.navigate(SettingsRoute.changePinRoute)
+                                },
+                                onOpenTestDetection = {
+                                    navController.navigate(SettingsRoute.testRoute)
                                 },
                                 onEngineSelected = { engine ->
                                     scope.launch {
@@ -516,11 +625,17 @@ fun HaramVeilMainShell(
                                     }
                                 },
                                 onMonitoredAppsUpdated = { selectedPackageNames ->
-                                    appConfigs = appConfigs.map { config ->
+                                    val updatedConfigs = appConfigs.map { config ->
                                         config.copy(isMonitored = config.app.packageName in selectedPackageNames)
                                     }
+                                    appConfigs = updatedConfigs
                                     scope.launch {
                                         protectionPreferencesRepository.saveMonitoredPackages(selectedPackageNames)
+                                        val forcedMode3Packages = updatedConfigs
+                                            .filter { it.isMonitored && it.modeOverride == ModeOverrideOption.FORCE_MODE_3 }
+                                            .map { it.app.packageName }
+                                            .toSet()
+                                        protectionPreferencesRepository.saveMode3ForcedPackages(forcedMode3Packages)
                                     }
                                 },
                                 onKeywordAdded = { keyword ->
@@ -536,6 +651,22 @@ fun HaramVeilMainShell(
                                     scope.launch {
                                         protectionPreferencesRepository.saveKeywordBlocklist(
                                             keywordBlocklist - keyword,
+                                        )
+                                    }
+                                },
+                                onDomainAdded = { domain ->
+                                    if (domain.isNotBlank() && domain !in domainBlocklist) {
+                                        scope.launch {
+                                            protectionPreferencesRepository.saveDomainBlocklist(
+                                                domainBlocklist + domain,
+                                            )
+                                        }
+                                    }
+                                },
+                                onDomainRemoved = { domain ->
+                                    scope.launch {
+                                        protectionPreferencesRepository.saveDomainBlocklist(
+                                            domainBlocklist - domain,
                                         )
                                     }
                                 },
@@ -574,6 +705,7 @@ fun HaramVeilMainShell(
                                 mode1Enabled = mode1OverrideEnabled,
                                 mode2Enabled = mode2OverrideEnabled,
                                 mode3Enabled = mode3OverrideEnabled,
+                                strictModeEnabled = strictModeEnabled,
                                 frameSkipIntervalMs = frameSkipIntervalMs.toInt(),
                                 mode3InferenceIntervalMs = mode3InferenceIntervalMs.toInt(),
                                 topCapturePercent = topCapturePercent.toInt(),
@@ -610,6 +742,11 @@ fun HaramVeilMainShell(
                                             mode2Enabled = mode2OverrideEnabled,
                                             mode3Enabled = enabled,
                                         )
+                                    }
+                                },
+                                onStrictModeChanged = { enabled ->
+                                    scope.launch {
+                                        protectionPreferencesRepository.saveStrictModeEnabled(enabled)
                                     }
                                 },
                                 onVisualModelSelected = { model ->
@@ -650,12 +787,20 @@ fun HaramVeilMainShell(
                                     }
                                 },
                                 onModeOverrideChanged = { packageName, option ->
-                                    appConfigs = appConfigs.map { config ->
+                                    val updatedConfigs = appConfigs.map { config ->
                                         if (config.app.packageName == packageName) {
                                             config.copy(modeOverride = option)
                                         } else {
                                             config
                                         }
+                                    }
+                                    appConfigs = updatedConfigs
+                                    val forcedMode3Packages = updatedConfigs
+                                        .filter { it.isMonitored && it.modeOverride == ModeOverrideOption.FORCE_MODE_3 }
+                                        .map { it.app.packageName }
+                                        .toSet()
+                                    scope.launch {
+                                        protectionPreferencesRepository.saveMode3ForcedPackages(forcedMode3Packages)
                                     }
                                 },
                                 onLockdownOverrideChanged = { packageName, option ->
@@ -667,6 +812,26 @@ fun HaramVeilMainShell(
                                         }
                                     }
                                 },
+                            )
+                        }
+                    }
+                    composable(SettingsRoute.testRoute) {
+                        PinGateComposable(
+                            authenticated = settingsUnlocked,
+                            pinManager = pinManager,
+                            securityQuestionsManager = securityQuestionsManager,
+                            title = "Enter your PIN to run protection tests",
+                            subtitle = "Test tools can change local history and preview the veil, so HaramVeil keeps them protected.",
+                            onAuthenticated = {
+                                settingsUnlocked = true
+                            },
+                        ) {
+                            TestDetectionScreen(
+                                protectionEnabled = protectionSettings.protectionEnabled,
+                                accessibilityServiceActive = accessibilityServiceActive,
+                                foregroundServiceActive = foregroundServiceActive,
+                                lastScanHeartbeatMs = lastScanHeartbeatMs,
+                                onBack = { navController.popBackStack() },
                             )
                         }
                     }
@@ -741,11 +906,13 @@ fun HaramVeilMainShell(
                     title = when (pendingSensitiveAction) {
                         SensitiveAction.DISABLE_PROTECTION -> "Enter your PIN to turn protection off"
                         SensitiveAction.CLEAR_HISTORY -> "Enter your PIN to clear history"
+                        SensitiveAction.SAFE_WINDOW -> "Enter your PIN to start a safe window"
                         null -> ""
                     },
                     subtitle = when (pendingSensitiveAction) {
                         SensitiveAction.DISABLE_PROTECTION -> "HaramVeil asks for the local PIN before protection can be paused, even for a moment."
                         SensitiveAction.CLEAR_HISTORY -> "Clearing local block history is protected so it cannot be wiped casually or impulsively."
+                        SensitiveAction.SAFE_WINDOW -> "Protection will pause briefly and restart automatically after the selected window."
                         null -> ""
                     },
                     onDismiss = {
@@ -755,6 +922,7 @@ fun HaramVeilMainShell(
                         when (pendingSensitiveAction) {
                             SensitiveAction.DISABLE_PROTECTION -> {
                                 scope.launch {
+                                    ProtectionResumeScheduler.cancel(context.applicationContext)
                                     protectionPreferencesRepository.saveProtectionEnabled(false)
                                 }
                             }
@@ -764,9 +932,19 @@ fun HaramVeilMainShell(
                                     snackbarHostState.showSnackbar("History cleared")
                                 }
                             }
+                            SensitiveAction.SAFE_WINDOW -> {
+                                val durationMs = pendingSafeWindowDurationMs ?: SafeWindowDefaultMs
+                                val untilMs = System.currentTimeMillis() + durationMs
+                                scope.launch {
+                                    protectionPreferencesRepository.pauseProtectionUntil(untilMs)
+                                    ProtectionResumeScheduler.schedule(context.applicationContext, durationMs)
+                                    snackbarHostState.showSnackbar("Safe window started")
+                                }
+                            }
                             null -> Unit
                         }
                         pendingSensitiveAction = null
+                        pendingSafeWindowDurationMs = null
                     },
                 )
 
@@ -849,6 +1027,7 @@ private fun rememberAccessibilityServiceStatus(
 private fun buildInitialAppConfigs(
     installedApps: List<InstalledAppInfo>,
     selectedPackages: Set<String>,
+    mode3ForcedPackages: Set<String>,
 ): List<AppMonitoringUiModel> {
     val fallbackApps = listOf(
         InstalledAppInfo(
@@ -889,10 +1068,10 @@ private fun buildInitialAppConfigs(
             AppMonitoringUiModel(
                 app = app,
                 isMonitored = app.packageName in selectedSet,
-                modeOverride = when {
-                    index == 0 && app.packageName in selectedSet -> ModeOverrideOption.FORCE_MODE_3
-                    index == 1 && app.packageName in selectedSet -> ModeOverrideOption.FORCE_MODE_2
-                    else -> ModeOverrideOption.DEFAULT
+                modeOverride = if (app.packageName in mode3ForcedPackages) {
+                    ModeOverrideOption.FORCE_MODE_3
+                } else {
+                    ModeOverrideOption.DEFAULT
                 },
                 lockdownOverride = when {
                     index == 0 && app.packageName in selectedSet -> LockdownDurationOption.MINUTES_30

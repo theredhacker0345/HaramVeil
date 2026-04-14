@@ -45,6 +45,7 @@ class ProtectionPreferencesRepository(
         .map { preferences ->
             ProtectionSettings(
                 protectionEnabled = preferences[HaramVeilPreferenceKeys.ProtectionEnabled] ?: true,
+                protectionPauseUntilMs = preferences[HaramVeilPreferenceKeys.ProtectionPauseUntilMs] ?: 0L,
                 monitoredPackages = preferences[HaramVeilPreferenceKeys.SelectedPackages] ?: emptySet(),
                 keywordBlocklist = (preferences[HaramVeilPreferenceKeys.KeywordBlocklist]
                     ?: DefaultKeywordBlocklist.entries.toSet())
@@ -52,12 +53,18 @@ class ProtectionPreferencesRepository(
                 mode1Enabled = preferences[HaramVeilPreferenceKeys.Mode1Enabled] ?: true,
                 mode2Enabled = preferences[HaramVeilPreferenceKeys.Mode2Enabled] ?: true,
                 mode3Enabled = preferences[HaramVeilPreferenceKeys.Mode3Enabled] ?: false,
+                mode3ForcedPackages = preferences[HaramVeilPreferenceKeys.Mode3ForcedPackages] ?: emptySet(),
+                mode3ForcedSeeded = preferences[HaramVeilPreferenceKeys.Mode3ForcedSeeded] ?: false,
+                strictModeEnabled = preferences[HaramVeilPreferenceKeys.StrictModeEnabled] ?: false,
                 selectedTextEngine = TextRecognitionEngine.fromStorageValue(
                     preferences[HaramVeilPreferenceKeys.SelectedTextEngine],
                 ) ?: TextRecognitionEngine.ML_KIT,
                 selectedVisualModel = VisualModelOption.fromStorageValue(
                     preferences[HaramVeilPreferenceKeys.SelectedVisualModel],
                 ),
+                domainBlocklist = (preferences[HaramVeilPreferenceKeys.DomainBlocklist]
+                    ?: DefaultDomainBlocklist.entries.toSet())
+                    .sorted(),
                 frameSkipIntervalMs = preferences[HaramVeilPreferenceKeys.FrameSkipIntervalMs]
                     ?: HaramVeilPreferenceKeys.DefaultFrameSkipIntervalMs,
                 mode3InferenceIntervalMs = preferences[HaramVeilPreferenceKeys.Mode3InferenceIntervalMs]
@@ -94,8 +101,27 @@ class ProtectionPreferencesRepository(
     suspend fun saveProtectionEnabled(enabled: Boolean) {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.ProtectionEnabled] = enabled
+            if (enabled) {
+                preferences.remove(HaramVeilPreferenceKeys.ProtectionPauseUntilMs)
+            }
         }
         ProtectionBootstrapStore(context).setProtectionEnabled(enabled)
+    }
+
+    suspend fun pauseProtectionUntil(untilTimestampMs: Long) {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            preferences[HaramVeilPreferenceKeys.ProtectionEnabled] = false
+            preferences[HaramVeilPreferenceKeys.ProtectionPauseUntilMs] = untilTimestampMs
+        }
+        ProtectionBootstrapStore(context).setProtectionEnabled(false)
+    }
+
+    suspend fun resumeProtectionAfterPause() {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            preferences[HaramVeilPreferenceKeys.ProtectionEnabled] = true
+            preferences.remove(HaramVeilPreferenceKeys.ProtectionPauseUntilMs)
+        }
+        ProtectionBootstrapStore(context).setProtectionEnabled(true)
     }
 
     suspend fun saveKeywordBlocklist(entries: List<String>) {
@@ -130,6 +156,34 @@ class ProtectionPreferencesRepository(
                 preferences[HaramVeilPreferenceKeys.SelectedVisualModel] = visualModel.storageValue
             } else {
                 preferences.remove(HaramVeilPreferenceKeys.SelectedVisualModel)
+            }
+        }
+    }
+
+    suspend fun saveMode3ForcedPackages(packageNames: Set<String>) {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            if (packageNames.isEmpty()) {
+                preferences.remove(HaramVeilPreferenceKeys.Mode3ForcedPackages)
+            } else {
+                preferences[HaramVeilPreferenceKeys.Mode3ForcedPackages] = packageNames
+            }
+        }
+    }
+
+    suspend fun markMode3ForcedSeeded() {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            preferences[HaramVeilPreferenceKeys.Mode3ForcedSeeded] = true
+        }
+    }
+
+    suspend fun saveStrictModeEnabled(enabled: Boolean) {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            preferences[HaramVeilPreferenceKeys.StrictModeEnabled] = enabled
+            if (enabled) {
+                preferences[HaramVeilPreferenceKeys.FrameSkipIntervalMs] =
+                    HaramVeilPreferenceKeys.StrictFrameSkipIntervalMs
+                preferences[HaramVeilPreferenceKeys.Mode3InferenceIntervalMs] =
+                    HaramVeilPreferenceKeys.StrictMode3InferenceIntervalMs
             }
         }
     }
@@ -174,6 +228,21 @@ class ProtectionPreferencesRepository(
         }
     }
 
+    suspend fun saveDomainBlocklist(entries: List<String>) {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            val sanitizedEntries = entries
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .toSet()
+            preferences[HaramVeilPreferenceKeys.DomainBlocklist] =
+                if (sanitizedEntries.isEmpty()) {
+                    DefaultDomainBlocklist.entries.toSet()
+                } else {
+                    sanitizedEntries
+                }
+        }
+    }
+
     suspend fun markAccessibilitySettingsPromptShown() {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.AccessibilitySettingsPromptShown] = true
@@ -198,12 +267,46 @@ object DefaultKeywordBlocklist {
         "nsfw",
         "porn",
         "sex",
+        "sexo",
+        "seks",
         "onlyfans",
+        "xxx",
+        "adult",
+        "adulto",
+        "18+",
+        "18plus",
+        "x-rated",
+        "hentai",
         "dating",
         "hookup",
         "escort",
         "nude",
+        "desnudo",
+        "explicit",
+        "erotico",
+        "erotica",
+        "pornografia",
         "(?i)cam\\s?girl",
         "(?i)adult\\s?video",
+        "(?i)explicit\\s?content",
+        "(?i)xxx\\s?video",
+    )
+}
+
+object DefaultDomainBlocklist {
+    val entries: List<String> = listOf(
+        "pornhub.com",
+        "xvideos.com",
+        "xnxx.com",
+        "xhamster.com",
+        "redtube.com",
+        "youporn.com",
+        "brazzers.com",
+        "chaturbate.com",
+        "stripchat.com",
+        "onlyfans.com",
+        "fansly.com",
+        "sex.com",
+        "adultfriendfinder.com",
     )
 }

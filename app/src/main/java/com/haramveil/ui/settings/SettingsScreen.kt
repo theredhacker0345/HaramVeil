@@ -79,14 +79,18 @@ fun SettingsScreen(
     selectedEngine: TextRecognitionEngine,
     globalLockdownDuration: LockdownDurationOption,
     keywordBlocklist: List<String>,
+    domainBlocklist: List<String>,
     statsRetentionDays: Int,
     deviceAdminEnabled: Boolean,
     onOpenAdvancedSettings: () -> Unit,
     onOpenChangePin: () -> Unit,
+    onOpenTestDetection: () -> Unit,
     onEngineSelected: (TextRecognitionEngine) -> Unit,
     onMonitoredAppsUpdated: (Set<String>) -> Unit,
     onKeywordAdded: (String) -> Unit,
     onKeywordRemoved: (String) -> Unit,
+    onDomainAdded: (String) -> Unit,
+    onDomainRemoved: (String) -> Unit,
     onLockdownDurationSelected: (LockdownDurationOption) -> Unit,
     onStatsRetentionSelected: (Int) -> Unit,
 ) {
@@ -98,6 +102,7 @@ fun SettingsScreen(
         }.getOrDefault("1.0.0")
     }
     var draftKeyword by rememberSaveable { mutableStateOf("") }
+    var draftDomain by rememberSaveable { mutableStateOf("") }
     var showEngineDialog by remember { mutableStateOf(false) }
     var showAppsDialog by remember { mutableStateOf(false) }
     var infoDialogMessage by remember { mutableStateOf<String?>(null) }
@@ -134,6 +139,12 @@ fun SettingsScreen(
                     title = "Monitored Apps",
                     supporting = "$monitoredCount apps selected",
                     onClick = { showAppsDialog = true },
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                SettingsActionRow(
+                    title = "Test Protection",
+                    supporting = "Run a quick self-check and preview the veil",
+                    onClick = onOpenTestDetection,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -191,6 +202,68 @@ fun SettingsScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                                 TextButton(onClick = { onKeywordRemoved(keyword) }) {
+                                    Text("Remove")
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Blocked Domains",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Domains are checked inside browser address bars and visible page text.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = draftDomain,
+                            onValueChange = { draftDomain = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            label = { Text("Add domain (example.com)") },
+                        )
+                        Button(
+                            onClick = {
+                                if (draftDomain.isNotBlank()) {
+                                    onDomainAdded(draftDomain.trim())
+                                    draftDomain = ""
+                                }
+                            },
+                        ) {
+                            Text("Add")
+                        }
+                    }
+                    if (domainBlocklist.isEmpty()) {
+                        Text(
+                            text = "No blocked domains yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        domainBlocklist.forEach { domain ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    text = domain,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { onDomainRemoved(domain) }) {
                                     Text("Remove")
                                 }
                             }

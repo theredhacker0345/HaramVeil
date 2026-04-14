@@ -176,6 +176,17 @@ class OnboardingViewModel(
         }
     }
 
+    fun selectHighRiskApps() {
+        _uiState.update { current ->
+            current.copy(
+                selectedPackages = current.installedApps
+                    .filter { it.isHighRisk }
+                    .map { it.packageName }
+                    .toSet(),
+            )
+        }
+    }
+
     suspend fun persistModeConfiguration() {
         val state = _uiState.value
         repository.saveModeConfiguration(
@@ -366,6 +377,7 @@ class OnboardingViewModel(
             "com.instagram.android",
             "com.zhiliaoapp.musically",
             "com.android.chrome",
+            "com.google.android.apps.chrome",
             "org.mozilla.firefox",
             "com.sec.android.app.sbrowser",
             "com.snapchat.android",
@@ -376,6 +388,7 @@ class OnboardingViewModel(
             "com.opera.browser",
             "com.brave.browser",
             "com.duckduckgo.mobile.android",
+            "com.microsoft.emmx",
             "org.telegram.messenger",
             "com.whatsapp",
         )
@@ -397,6 +410,7 @@ class OnboardingViewModel(
             "firefox",
             "samsunginternet",
             "snapchat",
+            "edge",
         )
 
         return normalized in exactHighRiskPackages || keywordMatches.any { normalized.contains(it) }

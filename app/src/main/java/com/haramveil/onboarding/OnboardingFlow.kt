@@ -215,6 +215,7 @@ fun HaramVeilRoot(
                 onToggleApp = viewModel::toggleAppSelection,
                 onSelectAll = viewModel::selectAllApps,
                 onDeselectAll = viewModel::deselectAllApps,
+                onSelectHighRisk = viewModel::selectHighRiskApps,
                 onContinue = {
                     launchPersistAndNavigate(scope) {
                         viewModel.persistSelectedApps()
@@ -526,6 +527,7 @@ private fun AppSelectionScreen(
     onToggleApp: (String) -> Unit,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
+    onSelectHighRisk: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Box(
@@ -563,6 +565,12 @@ private fun AppSelectionScreen(
                 ) {
                     Text("Deselect All")
                 }
+            }
+            OutlinedButton(
+                onClick = onSelectHighRisk,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("High-risk only")
             }
             Text(
                 text = "HIGH RISK apps are tagged in amber so you can review them quickly.",

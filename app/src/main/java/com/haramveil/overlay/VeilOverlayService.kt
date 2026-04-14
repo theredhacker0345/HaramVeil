@@ -73,6 +73,7 @@ class VeilOverlayService : Service() {
     private var overlayViewHolder: OverlayViewHolder? = null
     private var protectionJob: Job? = null
     private var dismissFallbackJob: Job? = null
+    private var previewDismissJob: Job? = null
     private var activeRequest: DetectionEvent.VeilRequested? = null
 
     override fun onCreate() {
@@ -89,6 +90,11 @@ class VeilOverlayService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
+        if (intent?.action == ActionPreview) {
+            startForeground(NotificationId, buildForegroundNotification())
+            showPreviewOverlay()
+            return START_STICKY
+        }
         if (intent?.action == ActionStart || intent?.action == null) {
             startForeground(NotificationId, buildForegroundNotification())
             if (!collectorsStarted) {
@@ -129,6 +135,7 @@ class VeilOverlayService : Service() {
         showVeil(request)
         protectionJob?.cancel()
         dismissFallbackJob?.cancel()
+        previewDismissJob?.cancel()
         protectionJob = backgroundScope.launch {
             engageProtection(request)
         }
@@ -217,6 +224,26 @@ class VeilOverlayService : Service() {
         }
     }
 
+    private fun showPreviewOverlay() {
+        val request = DetectionEvent.VeilRequested(
+            packageName = packageName,
+            triggerMode = com.haramveil.utils.DetectionTriggerMode.MODE_1,
+            matchDetails = "Preview only",
+        )
+        activeRequest = request
+        showVeil(request)
+        if (overlayViewHolder == null) {
+            activeRequest = null
+            return
+        }
+        overlayViewHolder?.reasonText?.text = "Preview only. No lock or navigation will occur."
+        previewDismissJob?.cancel()
+        previewDismissJob = serviceScope.launch {
+            delay(PreviewDismissDelayMs)
+            dismissVeil()
+        }
+    }
+
     private fun dismissVeil() {
         val viewHolder = overlayViewHolder ?: run {
             activeRequest = null
@@ -224,6 +251,7 @@ class VeilOverlayService : Service() {
         }
 
         dismissFallbackJob?.cancel()
+        previewDismissJob?.cancel()
         viewHolder.root.animate()
             .alpha(0f)
             .setDuration(FadeOutDurationMs)
@@ -250,7 +278,7 @@ class VeilOverlayService : Service() {
         viewHolder.englishText.text = passage.english
         viewHolder.sourceText.text = buildString {
             append(passage.source)
-            append(" • ")
+            append(" - ")
             append(if (passage.type == VeilPassageType.AYAH) "Ayah" else "Hadith")
         }
     }
@@ -498,6 +526,7 @@ class VeilOverlayService : Service() {
 
     companion object {
         const val ActionStart = "com.haramveil.overlay.action.START"
+        const val ActionPreview = "com.haramveil.overlay.action.PREVIEW"
 
         private const val LogTag = "HaramVeilVeil"
         private const val NotificationChannelId = "haramveil_veil_service"
@@ -505,6 +534,7 @@ class VeilOverlayService : Service() {
         private const val FadeInDurationMs = 200L
         private const val FadeOutDurationMs = 300L
         private const val FallbackDismissDelayMs = 4_000L
+        private const val PreviewDismissDelayMs = 6_000L
         private const val RootCommandTimeoutMs = 1_500L
     }
 }
