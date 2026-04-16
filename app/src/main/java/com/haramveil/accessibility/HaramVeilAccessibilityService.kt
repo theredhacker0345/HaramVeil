@@ -243,7 +243,9 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             }
 
             val wakeMode2 = currentSettings.mode2Enabled
-            val wakeMode3 = currentSettings.mode3Enabled && isMode3Forced
+            val wakeMode3 = currentSettings.mode3Enabled && (isMode3Forced || isBrowserApp || isHighRiskApp)
+            DebugLog.d(applicationContext, LogTag) { "Wake Request: mode2=${wakeMode2}, mode3=${wakeMode3} for ${trigger.packageName} (isBrowser=${isBrowserApp}, isHighRisk=${isHighRiskApp}, isForced=${isMode3Forced})" }
+            DebugLog.d(applicationContext, LogTag) { "Wake Request: mode2=${wakeMode2}, mode3=${wakeMode3} for ${trigger.packageName} (isBrowser=${isBrowserApp}, isHighRisk=${isHighRiskApp}, isForced=${isMode3Forced})" }
             val matchDetails = buildMatchDetails(scanResult, isHighRiskApp, isMonitoredApp)
 
             scanResult.matchedKeyword?.let { matchedKeyword ->

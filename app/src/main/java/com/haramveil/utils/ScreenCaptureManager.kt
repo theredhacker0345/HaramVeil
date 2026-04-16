@@ -17,6 +17,7 @@
  */
 
 package com.haramveil.utils
+import com.haramveil.utils.DebugLog
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Bitmap
@@ -97,6 +98,7 @@ class ScreenCaptureManager(
 
                     override fun onFailure(errorCode: Int) {
                         if (continuation.isActive) {
+                            DebugLog.w(accessibilityService, "HaramVeilCapture") { "takeScreenshot failed with errorCode=$errorCode" }
                             continuation.resume(null)
                         }
                     }

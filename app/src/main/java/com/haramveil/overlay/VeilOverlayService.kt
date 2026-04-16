@@ -193,6 +193,7 @@ class VeilOverlayService : Service() {
     private fun showVeil(
         request: DetectionEvent.VeilRequested,
     ) {
+        DebugLog.i(applicationContext, LogTag) { "Attempting to show veil for ${request.packageName} (trigger=${request.triggerMode})" }
         if (!android.provider.Settings.canDrawOverlays(this)) {
             DebugLog.w(applicationContext, LogTag) {
                 "Overlay permission is missing. Running protection actions without the veil UI."
@@ -409,6 +410,7 @@ class VeilOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
