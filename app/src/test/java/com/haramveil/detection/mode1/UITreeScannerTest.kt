@@ -60,4 +60,36 @@ class UITreeScannerTest {
         assertEquals("com.instagram.android", result.packageName)
         assertEquals(RiskLevel.HIGH, result.riskLevel)
     }
+
+    @Test
+    fun scan_returnsHighRisk_whenVisibleTextContainsBlockedDomain() {
+        val rootNode = mock(AccessibilityNodeInfo::class.java)
+        val childNode = mock(AccessibilityNodeInfo::class.java)
+
+        `when`(rootNode.isVisibleToUser).thenReturn(true)
+        `when`(rootNode.packageName).thenReturn("com.android.chrome")
+        `when`(rootNode.childCount).thenReturn(1)
+        `when`(rootNode.getChild(0)).thenReturn(childNode)
+        `when`(rootNode.text).thenReturn(null)
+        `when`(rootNode.contentDescription).thenReturn(null)
+
+        `when`(childNode.isVisibleToUser).thenReturn(true)
+        `when`(childNode.childCount).thenReturn(0)
+        `when`(childNode.text).thenReturn("https://blocked-example.com/some-page")
+        `when`(childNode.contentDescription).thenReturn(null)
+
+        val result = scanner.scan(
+            rootNode = rootNode,
+            packageName = "com.android.chrome",
+            keywordBlocklist = emptyList(),
+            domainBlocklist = listOf("blocked-example.com"),
+            isMonitoredApp = true,
+        )
+
+        assertTrue(result.triggered)
+        assertEquals("blocked-example.com", result.matchedKeyword)
+        assertEquals(MatchSource.DOMAIN, result.matchSource)
+        assertEquals("com.android.chrome", result.packageName)
+        assertEquals(RiskLevel.HIGH, result.riskLevel)
+    }
 }
