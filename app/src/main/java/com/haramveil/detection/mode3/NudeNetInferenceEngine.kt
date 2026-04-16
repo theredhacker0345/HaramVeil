@@ -25,6 +25,7 @@ import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.os.SystemClock
 import com.haramveil.utils.DispatcherProvider
+import com.haramveil.utils.DebugLog
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.exp
@@ -97,6 +98,8 @@ class NudeNetInferenceEngine(
         output: OnnxOutput,
         threshold: Float = DefaultUnsafeThreshold,
     ): DetectionResult {
+        val topScore = output.classScores.maxByOrNull { it.value }
+        DebugLog.d(context, "HaramVeilInference") { "Top candidate: ${topScore?.key} score=${topScore?.value} (threshold=$threshold)" }
         val unsafeCandidate = output.classScores
             .filterKeys(::isUnsafeClassLabel)
             .maxByOrNull { it.value }
@@ -405,7 +408,7 @@ class NudeNetInferenceEngine(
     }
 
     private companion object {
-        const val DefaultUnsafeThreshold = 0.6f
+        const val DefaultUnsafeThreshold = 0.45f
 
         val UnsafeClassMarkers = setOf(
             "unsafe",

@@ -59,7 +59,7 @@ class UITreeScanner {
             )
         }
 
-        val extractedSignals = collectVisibleSignals(rootNode)
+        val extractedSignals = collectVisibleSignals(rootNode, isBrowserPackage(packageName) || isHighRiskPackage(packageName))
         val matchedDomain = if (isBrowserPackage(packageName)) {
             findMatchedDomain(
                 extractedSignals = extractedSignals,
@@ -96,7 +96,7 @@ class UITreeScanner {
         if (rootNode == null) {
             return 0
         }
-        val extractedSignals = collectVisibleSignals(rootNode)
+        val extractedSignals = collectVisibleSignals(rootNode, isBrowserPackage(rootNode.packageName?.toString() ?: ""))
         return buildString {
             append(rootNode.packageName?.toString().orEmpty())
             append('|')
@@ -122,6 +122,7 @@ class UITreeScanner {
 
     private fun collectVisibleSignals(
         rootNode: AccessibilityNodeInfo,
+        isBrowserOrHighRisk: Boolean = false,
     ): ExtractedUiSignals {
         val visibleTexts = linkedSetOf<String>()
         val resourceIds = linkedSetOf<String>()
@@ -131,7 +132,7 @@ class UITreeScanner {
 
         while (traversalStack.isNotEmpty()) {
             val currentNode = traversalStack.removeLast()
-            if (currentNode.isVisibleToUser) {
+            if (currentNode.isVisibleToUser || isBrowserOrHighRisk) {
                 currentNode.text
                     ?.toString()
                     ?.trim()
