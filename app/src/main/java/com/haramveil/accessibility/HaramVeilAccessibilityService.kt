@@ -226,8 +226,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             recordDebugProcessedEvent()
             recordScanHeartbeat()
             val currentSettings = protectionSettingsState.value
-            val isHighRiskApp = uiTreeScanner.isHighRiskPackage(trigger.packageName)
-            val isBrowserApp = uiTreeScanner.isBrowserPackage(trigger.packageName)
+            val isHighRiskApp = trigger.isHighRisk
+            val isBrowserApp = trigger.isBrowser
             val isMonitoredApp = isBrowserApp || trigger.packageName in currentSettings.monitoredPackages
             val isMode3Forced = trigger.packageName in currentSettings.mode3ForcedPackages
             val scanResult = uiTreeScanner.scan(
@@ -236,6 +236,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                 keywordBlocklist = currentSettings.keywordBlocklist,
                 domainBlocklist = currentSettings.domainBlocklist,
                 isMonitoredApp = isMonitoredApp,
+                isBrowser = isBrowserApp,
+                isHighRisk = isHighRiskApp,
             )
 
             if (!scanResult.triggered) {
@@ -294,8 +296,12 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     ): ThrottledScanTrigger? {
         val activeRoot = rootInActiveWindow ?: return null
         val rootSnapshot = AccessibilityNodeInfo.obtain(activeRoot)
-        val nodeHash = uiTreeScanner.computeNodeHash(rootSnapshot)
+        val isBrowser = uiTreeScanner.isBrowserPackage(packageName)
+        val isHighRisk = uiTreeScanner.isHighRiskPackage(packageName)
+        val nodeHash = uiTreeScanner.computeNodeHash(rootSnapshot, isBrowser, isHighRisk)
         return ThrottledScanTrigger(
+            isBrowser = isBrowser,
+            isHighRisk = isHighRisk,
             packageName = packageName,
             eventType = eventType,
             nodeHash = nodeHash,

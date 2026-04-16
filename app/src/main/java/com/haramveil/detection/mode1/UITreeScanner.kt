@@ -48,6 +48,8 @@ class UITreeScanner {
         keywordBlocklist: List<String>,
         domainBlocklist: List<String>,
         isMonitoredApp: Boolean,
+        isBrowser: Boolean,
+        isHighRisk: Boolean,
     ): ScanResult {
         if (rootNode == null) {
             return ScanResult(
@@ -59,8 +61,8 @@ class UITreeScanner {
             )
         }
 
-        val extractedSignals = collectVisibleSignals(rootNode, isBrowserPackage(packageName) || isHighRiskPackage(packageName))
-        val matchedDomain = if (isBrowserPackage(packageName)) {
+        val extractedSignals = collectVisibleSignals(rootNode, isBrowser || isHighRisk)
+        val matchedDomain = if (isBrowser) {
             findMatchedDomain(
                 extractedSignals = extractedSignals,
                 domainBlocklist = domainBlocklist,
@@ -80,7 +82,7 @@ class UITreeScanner {
         }
         val riskLevel = when {
             matchedToken != null -> RiskLevel.HIGH
-            isHighRiskPackage(packageName) || isMonitoredApp -> RiskLevel.MEDIUM
+            isHighRisk || isMonitoredApp -> RiskLevel.MEDIUM
             else -> RiskLevel.LOW
         }
         return ScanResult(
@@ -92,13 +94,14 @@ class UITreeScanner {
         )
     }
 
-    fun computeNodeHash(rootNode: AccessibilityNodeInfo?): Int {
+    fun computeNodeHash(rootNode: AccessibilityNodeInfo?, isBrowser: Boolean, isHighRisk: Boolean): Int {
         if (rootNode == null) {
             return 0
         }
-        val extractedSignals = collectVisibleSignals(rootNode, isBrowserPackage(rootNode.packageName?.toString() ?: "") || isHighRiskPackage(rootNode.packageName?.toString() ?: ""))
+        val packageName = rootNode.packageName?.toString().orEmpty()
+        val extractedSignals = collectVisibleSignals(rootNode, isBrowser || isHighRisk)
         return buildString {
-            append(rootNode.packageName?.toString().orEmpty())
+            append(packageName)
             append('|')
             append(extractedSignals.visibleTexts.joinToString(separator = "|"))
             append('|')
