@@ -96,7 +96,7 @@ class UITreeScanner {
         if (rootNode == null) {
             return 0
         }
-        val extractedSignals = collectVisibleSignals(rootNode, isBrowserPackage(rootNode.packageName?.toString() ?: ""))
+        val extractedSignals = collectVisibleSignals(rootNode, isBrowserPackage(rootNode.packageName?.toString() ?: "") || isHighRiskPackage(rootNode.packageName?.toString() ?: ""))
         return buildString {
             append(rootNode.packageName?.toString().orEmpty())
             append('|')

@@ -112,7 +112,6 @@ class NudeNetInferenceEngine(
                 inferenceTimeMs = output.inferenceTimeMs,
             )
         } else {
-            val topScore = output.classScores.maxByOrNull { it.value }
             DetectionResult(
                 isUnsafe = false,
                 confidence = topScore?.value ?: 0f,
