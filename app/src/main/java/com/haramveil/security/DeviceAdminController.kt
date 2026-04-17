@@ -61,17 +61,6 @@ object DeviceAdminController {
             // Continue to fallbacks
         }
 
-        // Try direct Device Admin settings for Samsung One UI and other custom ROMs
-        try {
-            val directIntent = Intent("android.app.action.DEVICE_ADMIN_DEVICE_OWNER_SETTINGS").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(directIntent)
-            return
-        } catch (_: Exception) {
-            // Continue to fallbacks
-        }
-
         // Samsung One UI may reject the standard Device Admin intent.
         // Fall back to the general Security Settings screen.
         try {
