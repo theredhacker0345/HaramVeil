@@ -63,7 +63,7 @@ object DeviceAdminController {
 
         // Try direct Device Admin settings for Samsung One UI and other custom ROMs
         try {
-            val directIntent = Intent(Settings.ACTION_DEVICE_ADMIN_SETTINGS).apply {
+            val directIntent = Intent("android.app.action.DEVICE_ADMIN_DEVICE_OWNER_SETTINGS").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(directIntent)
