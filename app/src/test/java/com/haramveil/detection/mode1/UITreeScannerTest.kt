@@ -96,4 +96,30 @@ class UITreeScannerTest {
         assertEquals("com.android.chrome", result.packageName)
         assertEquals(RiskLevel.HIGH, result.riskLevel)
     }
+
+    @Test
+    fun computeNodeHash_usesLocalPackageName() {
+        val rootNode = mock(AccessibilityNodeInfo::class.java)
+        `when`(rootNode.packageName).thenReturn("com.android.chrome")
+        `when`(rootNode.isVisibleToUser).thenReturn(false) // Hidden node
+        `when`(rootNode.text).thenReturn("Browser Text")
+
+        // Even if passed as false, it should pick up that it's a browser from packageName
+        val hash = scanner.computeNodeHash(rootNode, isBrowser = false, isHighRisk = false)
+
+        // If it was NOT treated as browser, it would skip "Browser Text" because isVisibleToUser is false.
+        assertTrue(hash != 0)
+    }
+
+    @Test
+    fun computeNodeHash_defaultsToHighRisk_whenPackageNameIsEmpty() {
+        val rootNode = mock(AccessibilityNodeInfo::class.java)
+        `when`(rootNode.packageName).thenReturn("")
+        `when`(rootNode.isVisibleToUser).thenReturn(false) // Hidden node
+        `when`(rootNode.text).thenReturn("Hidden High Risk Text")
+
+        // Package name empty, isBrowser=false, isHighRisk=false -> should treat as high risk
+        val hash = scanner.computeNodeHash(rootNode, isBrowser = false, isHighRisk = false)
+        assertTrue(hash != 0)
+    }
 }
