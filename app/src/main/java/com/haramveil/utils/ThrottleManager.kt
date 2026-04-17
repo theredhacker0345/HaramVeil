@@ -37,6 +37,8 @@ class ThrottledScanTrigger(
     val eventType: Int,
     val nodeHash: Int,
     val rootNode: AccessibilityNodeInfo,
+    val isBrowser: Boolean = false,
+    val isHighRisk: Boolean = false,
     val issuedAtEpochMs: Long = System.currentTimeMillis(),
 ) {
     fun recycle() {

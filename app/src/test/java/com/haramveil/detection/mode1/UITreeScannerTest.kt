@@ -53,6 +53,8 @@ class UITreeScannerTest {
             keywordBlocklist = listOf("nsfw"),
             domainBlocklist = emptyList(),
             isMonitoredApp = true,
+            isBrowser = false,
+            isHighRisk = true,
         )
 
         assertTrue(result.triggered)
@@ -84,6 +86,8 @@ class UITreeScannerTest {
             keywordBlocklist = emptyList(),
             domainBlocklist = listOf("blocked-example.com"),
             isMonitoredApp = true,
+            isBrowser = true,
+            isHighRisk = true,
         )
 
         assertTrue(result.triggered)
