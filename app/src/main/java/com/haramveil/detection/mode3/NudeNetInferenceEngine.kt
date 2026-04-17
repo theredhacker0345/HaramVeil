@@ -93,11 +93,13 @@ class NudeNetInferenceEngine(
             }
         }
     }
-
     fun evaluate(
         output: OnnxOutput,
         threshold: Float = DefaultUnsafeThreshold,
     ): DetectionResult {
+        val topScore = output.classScores.maxByOrNull { it.value }
+        DebugLog.d(context, "HaramVeilInference") { "Top candidate: ${topScore?.key} score=${topScore?.value} (threshold=$threshold)" }
+
         val unsafeCandidate = output.classScores
             .filterKeys(::isUnsafeClassLabel)
             .maxByOrNull { it.value }
@@ -110,8 +112,6 @@ class NudeNetInferenceEngine(
                 inferenceTimeMs = output.inferenceTimeMs,
             )
         } else {
-            val topScore = output.classScores.maxByOrNull { it.value }
-            DebugLog.d(context, "HaramVeilInference") { "Top candidate: ${topScore?.key} score=${topScore?.value} (threshold=$threshold)" }
             DetectionResult(
                 isUnsafe = false,
                 confidence = topScore?.value ?: 0f,

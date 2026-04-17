@@ -99,15 +99,27 @@ class UITreeScanner {
         if (rootNode == null) {
             return 0
         }
+
         val packageName = rootNode.packageName?.toString().orEmpty()
-        val extractedSignals = collectVisibleSignals(rootNode, isBrowser || isHighRisk)
+        val localIsBrowser = if (packageName.isNotEmpty()) isBrowserPackage(packageName) else isBrowser
+        val localIsHighRisk = if (packageName.isNotEmpty()) {
+            isHighRiskPackage(packageName)
+        } else {
+            // If both are unavailable, treat as high-risk per security requirement
+            isHighRisk || !isBrowser
+        }
+
+        val effectiveIsBrowser = isBrowser || localIsBrowser
+        val effectiveIsHighRisk = isHighRisk || localIsHighRisk
+
+        val extractedSignals = collectVisibleSignals(rootNode, effectiveIsBrowser || effectiveIsHighRisk)
         return buildString {
             append(packageName)
-            append('|')
+            append("|")
             append(extractedSignals.visibleTexts.joinToString(separator = "|"))
-            append('|')
+            append("|")
             append(extractedSignals.resourceIds.joinToString(separator = "|"))
-            append('|')
+            append("|")
             append(extractedSignals.contentDescriptions.joinToString(separator = "|"))
         }.hashCode()
     }
