@@ -56,22 +56,50 @@ object DeviceAdminController {
         val standardIntent = buildEnableIntent(context, explanation)
         try {
             context.startActivity(standardIntent)
+            return
         } catch (_: Exception) {
-            // Samsung One UI may reject the standard Device Admin intent.
-            // Fall back to the general Security Settings screen.
+            // Continue to fallbacks
+        }
+
+        // Try direct Device Admin settings for Samsung One UI and other custom ROMs
+        try {
+            val directIntent = Intent(Settings.ACTION_DEVICE_ADMIN_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(directIntent)
+            return
+        } catch (_: Exception) {
+            // Continue to fallbacks
+        }
+
+        // Samsung One UI may reject the standard Device Admin intent.
+        // Fall back to the general Security Settings screen.
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_SECURITY_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+            return
+        } catch (_: Exception) {
+            // Last resort: open the device's general settings page.
             try {
-                context.startActivity(
-                    Intent(Settings.ACTION_SECURITY_SETTINGS).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    },
-                )
-            } catch (_: Exception) {
-                // Last resort: open the device's general settings page.
                 context.startActivity(
                     Intent(Settings.ACTION_SETTINGS).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     },
                 )
+            } catch (_: Exception) {
+                // If all else fails, try opening Apps settings where user can find the app
+                try {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        },
+                    )
+                } catch (_: Exception) {
+                    // Silent fail
+                }
             }
         }
     }

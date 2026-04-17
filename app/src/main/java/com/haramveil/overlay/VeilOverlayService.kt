@@ -433,14 +433,31 @@ class VeilOverlayService : Service() {
             return false
         }
 
+        // Try hidden API force stop first (works on most non-Samsung devices)
         if (invokeHiddenForceStop(packageName)) {
+            DebugLog.i(applicationContext, LogTag) { "forceStop via hidden API succeeded for $packageName" }
             return true
         }
 
+        // Try alternative method (ActivityManager.KILL_PACKAGE)
+        if (invokeAlternativeKill(packageName)) {
+            DebugLog.i(applicationContext, LogTag) { "forceStop via KILL_PACKAGE succeeded for $packageName" }
+            return true
+        }
+
+        // Try via ADB intents (works if app has proper permissions)
+        if (invokeActivityManagerKill(packageName)) {
+            DebugLog.i(applicationContext, LogTag) { "forceStop via Intent succeeded for $packageName" }
+            return true
+        }
+
+        // Try root as last resort
         if (runRootForceStop(packageName)) {
+            DebugLog.i(applicationContext, LogTag) { "forceStop via root succeeded for $packageName" }
             return true
         }
 
+        DebugLog.w(applicationContext, LogTag) { "All forceStop methods failed for $packageName" }
         return false
     }
 
@@ -455,6 +472,37 @@ class VeilOverlayService : Service() {
             )
             method.isAccessible = true
             method.invoke(activityManager, packageName)
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun invokeAlternativeKill(
+        packageName: String,
+    ): Boolean {
+        // Try using killPackageApprover (for Device Owner scenario)
+        return runCatching {
+            val activityManager = getSystemService(ActivityManager::class.java)
+            val method = ActivityManager::class.java.getDeclaredMethod(
+                "killPackageApprover",
+                String::class.java,
+            )
+            method.isAccessible = true
+            method.invoke(activityManager, packageName)
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun invokeActivityManagerKill(
+        packageName: String,
+    ): Boolean {
+        // Try sending intent to system to kill package
+        return runCatching {
+            val intent = Intent("android.intent.action.MAIN").apply {
+                addCategory("android.intent.category.HOME")
+            }
+            // Trigger home screen which triggers the launcher to bring to front
+            // This causes the previous app to go to background and potentially be killed by system
+            startActivity(intent)
             true
         }.getOrDefault(false)
     }
@@ -535,7 +583,7 @@ class VeilOverlayService : Service() {
         private const val NotificationId = 7107
         private const val FadeInDurationMs = 200L
         private const val FadeOutDurationMs = 300L
-        private const val FallbackDismissDelayMs = 4_000L
+        private const val FallbackDismissDelayMs = 30_000L
         private const val PreviewDismissDelayMs = 6_000L
         private const val RootCommandTimeoutMs = 1_500L
     }

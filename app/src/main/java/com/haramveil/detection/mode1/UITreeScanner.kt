@@ -62,7 +62,8 @@ class UITreeScanner {
         }
 
         val extractedSignals = collectVisibleSignals(rootNode, isBrowser || isHighRisk)
-        val matchedDomain = if (isBrowser) {
+        // Domain/URL detection works in browsers AND high-risk apps (Instagram, TikTok, etc.)
+        val matchedDomain = if (isBrowser || isHighRisk) {
             findMatchedDomain(
                 extractedSignals = extractedSignals,
                 domainBlocklist = domainBlocklist,
@@ -311,6 +312,15 @@ class UITreeScanner {
             "org.telegram.messenger",
             "com.whatsapp",
             "com.microsoft.emmx",
+            "com.match.bumble",
+            "com.tinder",
+            "com.hinge",
+            "com.okcupid.android",
+            "com.grindr",
+            "com.her",
+            "com.feeld",
+            "com.wapo",
+            "com.waplog",
         )
 
         val HighRiskKeywords: List<String> = listOf(
@@ -332,6 +342,12 @@ class UITreeScanner {
             "samsunginternet",
             "snapchat",
             "edge",
+            "tinder",
+            "bumble",
+            "hinge",
+            "dating",
+            "match",
+            "grindr",
         )
 
         val BrowserPackages: Set<String> = setOf(
@@ -343,6 +359,16 @@ class UITreeScanner {
             "com.brave.browser",
             "com.duckduckgo.mobile.android",
             "com.microsoft.emmx",
+            "com.uc.browser",
+            "com.uc.browser.in",
+            "com. Dolphin.mobile",
+            "com.maxthon.browser",
+            "com.yandex.browser",
+            "com.puffinBrowser",
+            "mobi.mgeekapp.tunny",
+            "com.kiwibrowser.browser",
+            "com.lynx.lynxbrowser",
+            "com.linkbubble.browser",
         )
 
         val BrowserKeywords: List<String> = listOf(
@@ -354,6 +380,13 @@ class UITreeScanner {
             "brave",
             "duckduckgo",
             "edge",
+            "ucbrowser",
+            "dolphin",
+            "maxthon",
+            "yandex",
+            "puffin",
+            "kiwi",
+            "lynx",
         )
 
         val DomainRegex = Regex("([a-z0-9-]+\\.)+[a-z]{2,}")

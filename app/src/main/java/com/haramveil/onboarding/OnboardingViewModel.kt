@@ -391,6 +391,18 @@ class OnboardingViewModel(
             "com.microsoft.emmx",
             "org.telegram.messenger",
             "com.whatsapp",
+            "com.match.bumble",
+            "com.tinder",
+            "com.hinge",
+            "com.okcupid.android",
+            "com.grindr",
+            "com.her",
+            "com.feeld",
+            "com.uc.browser",
+            "com. Dolphin.mobile",
+            "com.maxthon.browser",
+            "com.yandex.browser",
+            "com.puffinBrowser",
         )
         val keywordMatches = listOf(
             "browser",
@@ -411,6 +423,17 @@ class OnboardingViewModel(
             "samsunginternet",
             "snapchat",
             "edge",
+            "tinder",
+            "bumble",
+            "hinge",
+            "dating",
+            "match",
+            "grindr",
+            "ucbrowser",
+            "dolphin",
+            "maxthon",
+            "yandex",
+            "puffin",
         )
 
         return normalized in exactHighRiskPackages || keywordMatches.any { normalized.contains(it) }

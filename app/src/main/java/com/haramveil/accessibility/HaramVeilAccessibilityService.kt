@@ -134,6 +134,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             ?: return
 
         val isBrowserPackage = uiTreeScanner.isBrowserPackage(packageName)
+        val isHighRiskPackage = uiTreeScanner.isHighRiskPackage(packageName)
 
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             DetectionBus.publishWindowStateObserved(
@@ -167,7 +168,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (!isBrowserPackage && packageName !in currentSettings.monitoredPackages) {
+        // Always scan browsers and high-risk apps, even if not in monitored packages list
+        if (!isBrowserPackage && !isHighRiskPackage && packageName !in currentSettings.monitoredPackages) {
             return
         }
 
@@ -267,9 +269,17 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             )
 
             when (scanResult.riskLevel) {
-                RiskLevel.MEDIUM -> Unit
-
                 RiskLevel.HIGH -> {
+                    // Always show veil immediately for HIGH risk content
+                    DetectionBus.publishVeilRequested(
+                        packageName = scanResult.packageName,
+                        triggerMode = DetectionTriggerMode.MODE_1,
+                        matchDetails = matchDetails,
+                    )
+                }
+
+                RiskLevel.MEDIUM -> {
+                    // For MEDIUM risk: show veil if mode2/mode3 are disabled, otherwise escalate to Mode 2/3
                     if (!currentSettings.mode2Enabled && !currentSettings.mode3Enabled) {
                         DetectionBus.publishVeilRequested(
                             packageName = scanResult.packageName,
@@ -277,6 +287,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                             matchDetails = matchDetails,
                         )
                     }
+                    // Note: If mode2 or mode3 is enabled, Mode1Triggered is already published above
+                    // which will trigger Mode 2 OCR/Mode 3 visual scanning
                 }
 
                 RiskLevel.LOW -> Unit
