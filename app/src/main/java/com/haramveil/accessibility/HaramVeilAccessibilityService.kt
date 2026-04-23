@@ -143,6 +143,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             )
 
             if (appLockdownManager.isLocked(packageName)) {
+                // Re-extend the lockdown duration instead of just showing the veil
                 appLockdownManager.lockApp(packageName, currentSettings.lockdownDurationMs)
                 serviceScope.launch(dispatcherProvider.io) {
                     statsRepository.logBlock(
@@ -279,16 +280,12 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                 }
 
                 RiskLevel.MEDIUM -> {
-                    // For MEDIUM risk: show veil if mode2/mode3 are disabled, otherwise escalate to Mode 2/3
-                    if (!currentSettings.mode2Enabled && !currentSettings.mode3Enabled) {
-                        DetectionBus.publishVeilRequested(
-                            packageName = scanResult.packageName,
-                            triggerMode = DetectionTriggerMode.MODE_1,
-                            matchDetails = matchDetails,
-                        )
-                    }
-                    // Note: If mode2 or mode3 is enabled, Mode1Triggered is already published above
-                    // which will trigger Mode 2 OCR/Mode 3 visual scanning
+                    // Always show veil for medium-risk detection
+                    DetectionBus.publishVeilRequested(
+                        packageName = scanResult.packageName,
+                        triggerMode = DetectionTriggerMode.MODE_1,
+                        matchDetails = matchDetails,
+                    )
                 }
 
                 RiskLevel.LOW -> Unit
