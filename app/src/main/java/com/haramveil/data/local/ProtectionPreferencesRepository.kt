@@ -52,7 +52,7 @@ class ProtectionPreferencesRepository(
                     .sorted(),
                 mode1Enabled = preferences[HaramVeilPreferenceKeys.Mode1Enabled] ?: true,
                 mode2Enabled = preferences[HaramVeilPreferenceKeys.Mode2Enabled] ?: true,
-                mode3Enabled = preferences[HaramVeilPreferenceKeys.Mode3Enabled] ?: true,
+                mode3Enabled = preferences[HaramVeilPreferenceKeys.Mode3Enabled] ?: false,
                 mode3ForcedPackages = preferences[HaramVeilPreferenceKeys.Mode3ForcedPackages] ?: emptySet(),
                 mode3ForcedSeeded = preferences[HaramVeilPreferenceKeys.Mode3ForcedSeeded] ?: false,
                 strictModeEnabled = preferences[HaramVeilPreferenceKeys.StrictModeEnabled] ?: false,

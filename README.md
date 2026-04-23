@@ -161,6 +161,16 @@ Yes. Use Safe Window from the Dashboard. It always requires a PIN and auto-resum
 
 ---
 
+## Recent Fixes
+
+### v1.x - Detection Pipeline Fixes
+
+**Fixed MEDIUM Risk Blocking**: The app now immediately shows the blocking veil when adult content is detected in any app (HIGH or MEDIUM risk), regardless of whether Mode 2 or Mode 3 are enabled. Previously, the veil was only shown if both modes were disabled, which meant most users weren't getting immediate protection.
+
+**Fixed Mode 3 Default**: Corrected the default value for Mode 3 (AI visual detection) to be disabled by default, matching the model specification.
+
+---
+
 ## License
 
 Copyright (C) 2026 Ubaid ur Rehman
