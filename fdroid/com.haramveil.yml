@@ -13,7 +13,7 @@ Builds:
     commit: v1.0.0
     subdir: app
     gradle:
-      - foss
+      - fossOnnx
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
 CurrentVersion: 1.0.0

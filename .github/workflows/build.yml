@@ -1,14 +1,18 @@
-name: Android Build
+name: Android CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  GRADLE_OPTS: "-Xmx3072m"
 
 jobs:
-  build:
+  build-foss:
     runs-on: ubuntu-latest
-
+    # fossOnnx flavour is fully FOSS and F-Droid eligible.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,37 +21,65 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
-          cache: gradle
+          java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Build debug APKs
-        run: |
-          ./gradlew --no-daemon :app:assembleFossDebug
-          ./gradlew --no-daemon :app:assembleFullDebug
+      - name: Assemble fossOnnx release
+        run: ./gradlew :app:assembleFossOnnxRelease
 
-      - name: Run unit tests
-        run: ./gradlew --no-daemon :app:testFossDebugUnitTest
+      - name: Lint fossOnnx release
+        run: ./gradlew :app:lintFossOnnxRelease
 
-      - name: Build unsigned release APKs
-        run: |
-          ./gradlew --no-daemon :app:assembleFossRelease
-          ./gradlew --no-daemon :app:assembleFullRelease
-
-      - name: Upload unsigned release APKs
+      - name: Upload fossOnnx release APK
         uses: actions/upload-artifact@v4
         with:
-          name: haramveil-release-unsigned
+          name: haramveil-fossOnnx-release
+          path: app/build/outputs/apk/fossOnnx/release/
+          if-no-files-found: error
+
+  build-mlkit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
           path: |
-            app/build/outputs/apk/foss/release/app-foss-release-unsigned.apk
-            app/build/outputs/apk/full/release/app-full-release-unsigned.apk
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('gradle.properties', '**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Assemble mlkit release
+        run: ./gradlew :app:assembleMlkitRelease
+
+      - name: Lint mlkit release
+        run: ./gradlew :app:lintMlkitRelease
+
+      - name: Upload mlkit release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: haramveil-mlkit-release
+          path: app/build/outputs/apk/mlkit/release/
           if-no-files-found: error

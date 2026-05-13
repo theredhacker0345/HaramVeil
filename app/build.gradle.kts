@@ -24,7 +24,7 @@ plugins {
 android {
     namespace = "com.haramveil"
     compileSdk = 36
-    flavorDimensions += "distribution"
+    flavorDimensions += "ocrFlavour"
 
     defaultConfig {
         applicationId = "com.haramveil"
@@ -40,12 +40,12 @@ android {
     }
 
     productFlavors {
-        create("foss") {
-            dimension = "distribution"
+        create("fossOnnx") {
+            dimension = "ocrFlavour"
             buildConfigField("boolean", "INCLUDE_MLKIT", "false")
         }
-        create("full") {
-            dimension = "distribution"
+        create("mlkit") {
+            dimension = "ocrFlavour"
             buildConfigField("boolean", "INCLUDE_MLKIT", "true")
         }
     }
@@ -111,8 +111,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.3")
-    implementation("com.google.android.gms:play-services-base:18.10.0")
-    add("fullImplementation", "com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
+    add("mlkitImplementation", "com.google.android.gms:play-services-base:18.10.0")
+    add("mlkitImplementation", "com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.sqlite:sqlite:2.5.2")
     implementation("androidx.security:security-crypto:1.1.0")

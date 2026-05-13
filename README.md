@@ -61,8 +61,8 @@ When a risk is detected:
 - **Security**: bcrypt PIN hashing, security questions, Device Admin
 - **Services**: Accessibility Service, Foreground Service, WorkManager
 - **AI / OCR**:
-  - ML Kit (optional, full build)
-  - RapidOCR ONNX (FOSS build)
+  - ML Kit (optional, mlkit flavor)
+  - RapidOCR ONNX (fossOnnx flavor)
   - NudeNet v3.4 ONNX for visual detection
 
 ---
@@ -81,8 +81,8 @@ When a risk is detected:
 
 | Flavor | ML Kit | Internet | Target |
 |--------|--------|----------|--------|
-| foss | No | Never | F-Droid / de-Googled ROMs |
-| full | Yes (optional) | Debug only | GitHub Releases |
+| fossOnnx | No | Never | F-Droid / de-Googled ROMs |
+| mlkit | Yes (optional) | Debug only | GitHub Releases |
 
 ---
 
@@ -101,10 +101,10 @@ git clone https://github.com/darkmaster0345/HaramVeil.git
 cd HaramVeil
 
 # FOSS build (for F-Droid)
-./gradlew assembleFossRelease
+./gradlew :app:assembleFossOnnxRelease
 
 # Full build (with ML Kit)
-./gradlew assembleFullRelease
+./gradlew :app:assembleMlkitRelease
 ```
 
 ---

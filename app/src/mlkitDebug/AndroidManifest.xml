@@ -17,7 +17,7 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Full debug flavor only: temporary internet access for one-time, user-approved model setup validation. -->
+    <!-- mlkit debug flavor only: temporary internet access for one-time, user-approved model setup validation. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
 </manifest>
