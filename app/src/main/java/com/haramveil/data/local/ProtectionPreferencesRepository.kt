@@ -357,7 +357,6 @@ object DefaultDomainBlocklist {
         "sex.com",
         "adultfriendfinder.com",
         "xblues.com",
-        "youporn.com",
         "spankbang.com",
         "tnafl.com",
         "naughtymatch.com",
@@ -366,7 +365,6 @@ object DefaultDomainBlocklist {
         "beegt.com",
         "hentaihaven.com",
         "rule34.xxx",
-        "xvideos.com",
         "xfreeones.com",
     )
 }

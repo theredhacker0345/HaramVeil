@@ -216,7 +216,6 @@ class HaramVeilAccessibilityService : AccessibilityService() {
 
         serviceScope.launch(dispatcherProvider.default) {
             throttleManager.scanTriggers.collectLatest { trigger ->
-                trigger ?: return@collectLatest
                 processScanTrigger(trigger)
             }
         }
