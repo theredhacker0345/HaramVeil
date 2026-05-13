@@ -83,7 +83,7 @@ class UITreeScanner {
         }
         val riskLevel = when {
             matchedToken != null -> RiskLevel.HIGH
-            isHighRisk || isMonitoredApp -> RiskLevel.MEDIUM
+            isMonitoredApp && !isBrowser -> RiskLevel.MEDIUM
             else -> RiskLevel.LOW
         }
         return ScanResult(
@@ -309,21 +309,13 @@ class UITreeScanner {
         val HighRiskPackages: Set<String> = setOf(
             "com.instagram.android",
             "com.zhiliaoapp.musically",
-            "com.android.chrome",
-            "com.google.android.apps.chrome",
-            "org.mozilla.firefox",
-            "com.sec.android.app.sbrowser",
             "com.snapchat.android",
             "com.twitter.android",
             "com.xcorp.android",
             "com.google.android.youtube",
             "com.reddit.frontpage",
-            "com.opera.browser",
-            "com.brave.browser",
-            "com.duckduckgo.mobile.android",
             "org.telegram.messenger",
             "com.whatsapp",
-            "com.microsoft.emmx",
             "com.match.bumble",
             "com.tinder",
             "com.hinge",
@@ -336,7 +328,6 @@ class UITreeScanner {
         )
 
         val HighRiskKeywords: List<String> = listOf(
-            "browser",
             "video",
             "instagram",
             "tiktok",
@@ -344,16 +335,9 @@ class UITreeScanner {
             "xcorp",
             "youtube",
             "reddit",
-            "opera",
-            "brave",
-            "duckduckgo",
             "telegram",
             "whatsapp",
-            "chrome",
-            "firefox",
-            "samsunginternet",
             "snapchat",
-            "edge",
             "tinder",
             "bumble",
             "hinge",
@@ -373,7 +357,7 @@ class UITreeScanner {
             "com.microsoft.emmx",
             "com.uc.browser",
             "com.uc.browser.in",
-            "com. Dolphin.mobile",
+            "com.dolphin.mobile",
             "com.maxthon.browser",
             "com.yandex.browser",
             "com.puffinBrowser",

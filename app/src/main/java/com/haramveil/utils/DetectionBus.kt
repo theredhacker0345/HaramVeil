@@ -82,7 +82,7 @@ sealed interface DetectionEvent {
 object DetectionBus {
     private val _mode1WakeRequests = MutableStateFlow<Mode1WakeRequest?>(null)
     private val _events = MutableSharedFlow<DetectionEvent>(
-        replay = 0,
+        replay = 1,
         extraBufferCapacity = 32,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )

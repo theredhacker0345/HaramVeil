@@ -53,6 +53,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -75,6 +76,8 @@ class VeilOverlayService : Service() {
     private var dismissFallbackJob: Job? = null
     private var previewDismissJob: Job? = null
     private var activeRequest: DetectionEvent.VeilRequested? = null
+    private var navigatingHomeFromVeil = false
+    private var minimumVeilDisplayUntilMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -118,7 +121,7 @@ class VeilOverlayService : Service() {
 
     private fun startCollectors() {
         serviceScope.launch {
-            DetectionBus.events.collect { event ->
+            DetectionBus.events.drop(1).collect { event ->
                 when (event) {
                     is DetectionEvent.VeilRequested -> handleVeilRequested(event)
                     is DetectionEvent.WindowStateObserved -> handleWindowStateObserved(event)
@@ -158,6 +161,20 @@ class VeilOverlayService : Service() {
             return
         }
 
+        if (navigatingHomeFromVeil) {
+            navigatingHomeFromVeil = false
+            DebugLog.d(applicationContext, LogTag) {
+                "Ignoring launcher event after internal home navigation for ${currentRequest.packageName}."
+            }
+            return
+        }
+        if (System.currentTimeMillis() < minimumVeilDisplayUntilMs) {
+            DebugLog.d(applicationContext, LogTag) {
+                "Ignoring launcher event because minimum veil display time has not elapsed."
+            }
+            return
+        }
+
         DebugLog.i(applicationContext, LogTag) {
             "Launcher observed after ${currentRequest.packageName} block. Dismissing veil."
         }
@@ -173,6 +190,7 @@ class VeilOverlayService : Service() {
             durationMs = settings.lockdownDurationMs,
         )
         val forceStopped = forceClosePackageBestEffort(request.packageName)
+        navigatingHomeFromVeil = true
         navigateHome()
         DebugLog.i(applicationContext, LogTag) {
             "Veil engaged for ${request.packageName} via ${request.triggerMode}. forceStop=$forceStopped details=${request.matchDetails}"
@@ -200,6 +218,8 @@ class VeilOverlayService : Service() {
             }
             return
         }
+
+        minimumVeilDisplayUntilMs = System.currentTimeMillis() + MinimumVeilDisplayDurationMs
 
         val passage = veilContentRepository.randomPassage()
         val existingViewHolder = overlayViewHolder
@@ -412,7 +432,6 @@ class VeilOverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply {
@@ -433,25 +452,16 @@ class VeilOverlayService : Service() {
             return false
         }
 
-        // Try hidden API force stop first (works on most non-Samsung devices)
+        if (invokeActivityManagerKill(packageName)) {
+            DebugLog.i(applicationContext, LogTag) { "killBackgroundProcesses succeeded for $packageName" }
+            return true
+        }
+
         if (invokeHiddenForceStop(packageName)) {
             DebugLog.i(applicationContext, LogTag) { "forceStop via hidden API succeeded for $packageName" }
             return true
         }
 
-        // Try alternative method (ActivityManager.KILL_PACKAGE)
-        if (invokeAlternativeKill(packageName)) {
-            DebugLog.i(applicationContext, LogTag) { "forceStop via KILL_PACKAGE succeeded for $packageName" }
-            return true
-        }
-
-        // Try via ADB intents (works if app has proper permissions)
-        if (invokeActivityManagerKill(packageName)) {
-            DebugLog.i(applicationContext, LogTag) { "forceStop via Intent succeeded for $packageName" }
-            return true
-        }
-
-        // Try root as last resort
         if (runRootForceStop(packageName)) {
             DebugLog.i(applicationContext, LogTag) { "forceStop via root succeeded for $packageName" }
             return true
@@ -476,33 +486,12 @@ class VeilOverlayService : Service() {
         }.getOrDefault(false)
     }
 
-    private fun invokeAlternativeKill(
-        packageName: String,
-    ): Boolean {
-        // Try using killPackageApprover (for Device Owner scenario)
-        return runCatching {
-            val activityManager = getSystemService(ActivityManager::class.java)
-            val method = ActivityManager::class.java.getDeclaredMethod(
-                "killPackageApprover",
-                String::class.java,
-            )
-            method.isAccessible = true
-            method.invoke(activityManager, packageName)
-            true
-        }.getOrDefault(false)
-    }
-
     private fun invokeActivityManagerKill(
         packageName: String,
     ): Boolean {
-        // Try sending intent to system to kill package
+        val activityManager = getSystemService(ActivityManager::class.java) ?: return false
         return runCatching {
-            val intent = Intent("android.intent.action.MAIN").apply {
-                addCategory("android.intent.category.HOME")
-            }
-            // Trigger home screen which triggers the launcher to bring to front
-            // This causes the previous app to go to background and potentially be killed by system
-            startActivity(intent)
+            activityManager.killBackgroundProcesses(packageName)
             true
         }.getOrDefault(false)
     }
@@ -583,7 +572,8 @@ class VeilOverlayService : Service() {
         private const val NotificationId = 7107
         private const val FadeInDurationMs = 200L
         private const val FadeOutDurationMs = 300L
-        private const val FallbackDismissDelayMs = 30_000L
+        private const val FallbackDismissDelayMs = 60_000L
+        private const val MinimumVeilDisplayDurationMs = 2_000L
         private const val PreviewDismissDelayMs = 6_000L
         private const val RootCommandTimeoutMs = 1_500L
     }

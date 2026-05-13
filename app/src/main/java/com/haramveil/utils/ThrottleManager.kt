@@ -22,9 +22,10 @@ import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 data class PendingAccessibilityEvent(
@@ -53,25 +54,26 @@ class ThrottleManager(
     private val buildTrigger: suspend (PendingAccessibilityEvent) -> ThrottledScanTrigger?,
 ) {
     private val debounceMs = MutableStateFlow(initialDebounceMs.coerceIn(minimumValue = 250L, maximumValue = 2_000L))
-    private val pendingEvents = MutableSharedFlow<PendingAccessibilityEvent>(extraBufferCapacity = 32)
-    private val _scanTriggers = MutableStateFlow<ThrottledScanTrigger?>(null)
+    private val pendingEvents = MutableSharedFlow<PendingAccessibilityEvent>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val _scanTriggers = MutableSharedFlow<ThrottledScanTrigger>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private var lastProcessedFingerprint: Pair<String, Int>? = null
 
-    val scanTriggers = _scanTriggers.asStateFlow()
+    val scanTriggers = _scanTriggers.asSharedFlow()
 
     init {
         scope.launch(dispatcherProvider.default) {
-            pendingEvents.collectLatest { event ->
-                delay(debounceMs.value)
-                val trigger = buildTrigger(event) ?: return@collectLatest
+            pendingEvents.collect { event ->
+                val currentDebounce = debounceMs.value
+                delay(currentDebounce)
+                val trigger = buildTrigger(event) ?: return@collect
                 val fingerprint = event.packageName to trigger.nodeHash
                 if (fingerprint == lastProcessedFingerprint) {
                     trigger.recycle()
-                    return@collectLatest
+                    return@collect
                 }
 
                 lastProcessedFingerprint = fingerprint
-                _scanTriggers.value = trigger
+                _scanTriggers.emit(trigger)
             }
         }
     }
