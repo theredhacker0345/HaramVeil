@@ -19,6 +19,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("io.gitlab.arturbosch.detekt")
 }
 
 android {
@@ -58,6 +59,15 @@ android {
                 "proguard-rules.pro",
             )
         }
+    }
+
+    lint {
+        abortOnError = true
+        checkDependencies = true
+        ignoreWarnings = false
+        showAll = true
+        xmlReport = true
+        htmlReport = true
     }
 
     testOptions {
