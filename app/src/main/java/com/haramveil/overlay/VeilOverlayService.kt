@@ -17,6 +17,7 @@
  */
 
 package com.haramveil.overlay
+import android.annotation.SuppressLint
 
 import android.app.ActivityManager
 import android.app.Notification
@@ -491,6 +492,7 @@ class VeilOverlayService : Service() {
     ): Boolean {
         val activityManager = getSystemService(ActivityManager::class.java) ?: return false
         return runCatching {
+            @SuppressLint("MissingPermission")
             activityManager.killBackgroundProcesses(packageName)
             true
         }.getOrDefault(false)

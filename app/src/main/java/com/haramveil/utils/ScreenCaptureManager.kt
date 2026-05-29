@@ -82,6 +82,7 @@ class ScreenCaptureManager(
     }
 
     @Suppress("DEPRECATION")
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     private suspend fun awaitScreenshot(
         accessibilityService: AccessibilityService,
     ): AccessibilityService.ScreenshotResult? =
@@ -106,6 +107,7 @@ class ScreenCaptureManager(
             )
         }
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     private fun buildHaramClipBitmap(
         screenshotResult: AccessibilityService.ScreenshotResult,
         topCapturePercent: Int,
