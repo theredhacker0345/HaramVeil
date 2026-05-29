@@ -9,10 +9,42 @@ on:
     branches: [main]
 
 env:
-  GRADLE_OPTS: "-Xmx3072m"
+  GRADLE_OPTS: "-Xmx3072m -Dorg.gradle.daemon=false"
 
 jobs:
-  build:
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-home-cache-cleanup: true
+
+      - name: Run Detekt
+        run: ./gradlew detekt
+
+      - name: Run Android Lint
+        run: ./gradlew lintFossOnnxDebug
+
+      - name: Upload Lint Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: app/build/reports/lint-results-*
+
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,35 +59,104 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Make Gradle executable
-        run: chmod +x ./gradlew
+      - name: Run Unit Tests
+        run: ./gradlew testFossOnnxDebugUnitTest testMlkitDebugUnitTest
 
-      - name: Build fossOnnx Release
-        run: ./gradlew :app:assembleFossOnnxRelease
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v4
+        if: always() # always run even if the previous step fails
+        with:
+          report_paths: '**/build/test-results/**/*.xml'
 
-      - name: Build mlkit Release
-        run: ./gradlew :app:assembleMlkitRelease
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/test-results/**/*.xml
 
-      - name: Prepare APKs
+  build:
+    name: Build Flavor (${{ matrix.flavor }})
+    needs: [static-analysis, unit-tests]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        flavor: [fossOnnx, mlkit]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          add-job-summary: 'on'
+
+      - name: Build ${{ matrix.flavor }} Release
+        run: ./gradlew :app:assemble${{ matrix.flavor }}Release --scan --no-daemon
+
+      - name: Get APK path
+        id: apk-path
         run: |
-          mkdir -p release-artifacts
-          # Find and rename the APKs to be more descriptive
-          find app/build/outputs/apk/fossOnnx/release/ -name "*.apk" -exec cp {} release-artifacts/HaramVeil-fossOnnx-release.apk \;
-          find app/build/outputs/apk/mlkit/release/ -name "*.apk" -exec cp {} release-artifacts/HaramVeil-mlkit-release.apk \;
+          APK_PATH=$(find app/build/outputs/apk/${{ matrix.flavor }}/release/ -name "*.apk" | head -n 1)
+          echo "path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "filename=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
+
+      - name: Generate Checksum
+        run: |
+          sha256sum ${{ steps.apk-path.outputs.path }} > ${{ steps.apk-path.outputs.path }}.sha256
+
+      - name: APK Size Check
+        run: |
+          size=$(du -h ${{ steps.apk-path.outputs.path }} | cut -f1)
+          echo "### APK Size (${{ matrix.flavor }}): $size" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: HaramVeil-APKs
-          path: release-artifacts/*.apk
+          name: HaramVeil-${{ matrix.flavor }}-APK
+          path: |
+            ${{ steps.apk-path.outputs.path }}
+            ${{ steps.apk-path.outputs.path }}.sha256
+
+  dependency-scan:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+
+  release:
+    name: Create Release
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: HaramVeil-*-APK
+          merge-multiple: true
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-assets
+          cp artifacts/*.apk release-assets/
+          cp artifacts/*.sha256 release-assets/
 
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release-artifacts/HaramVeil-fossOnnx-release.apk
-            release-artifacts/HaramVeil-mlkit-release.apk
+          files: release-assets/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

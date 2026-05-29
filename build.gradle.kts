@@ -21,8 +21,16 @@ plugins {
     id("com.android.library") version "9.0.0" apply false
     kotlin("android") version "2.1.0" apply false
     kotlin("plugin.compose") version "2.1.0" apply false
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
 tasks.register<Delete>("clean") {
     delete(layout.buildDirectory)
+}
+
+detekt {
+    toolVersion = "1.23.8"
+    buildUponDefaultConfig = true
+    allRules = false
+    config.setFrom(files("$projectDir/config/detekt/detekt.yml"))
 }
