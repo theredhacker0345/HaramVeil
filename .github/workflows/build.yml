@@ -17,19 +17,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        # actions/checkout@v4
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        # actions/setup-java@v4
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
-        # gradle/actions/setup-gradle@v3
-        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Run Detekt
         run: ./gradlew detekt
@@ -42,8 +39,7 @@ jobs:
 
       - name: Upload Lint Reports
         if: always()
-        # actions/upload-artifact@v4
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: lint-reports
           path: app/build/reports/lint-results-*
@@ -53,34 +49,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        # actions/checkout@v4
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        # actions/setup-java@v4
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
-        # gradle/actions/setup-gradle@v3
-        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Run Unit Tests
         run: ./gradlew testFossOnnxDebugUnitTest testMlkitDebugUnitTest
 
       - name: Publish Test Report
-        # mikepenz/action-junit-report@v4
-        uses: mikepenz/action-junit-report@db71d41eb79864e25ab0337e395c352e84523afe
-        if: always() # always run even if the previous step fails
+        uses: mikepenz/action-junit-report@v4
+        if: always()
         with:
           report_paths: '**/build/test-results/**/*.xml'
 
       - name: Upload Test Results
         if: always()
-        # actions/upload-artifact@v4
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: app/build/test-results/**/*.xml
@@ -99,19 +90,16 @@ jobs:
           apk_dir: mlkit
     steps:
       - name: Checkout
-        # actions/checkout@v4
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        # actions/setup-java@v4
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
-        # gradle/actions/setup-gradle@v3
-        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70
+        uses: gradle/actions/setup-gradle@v3
         with:
           add-job-summary: 'on'
 
@@ -139,8 +127,7 @@ jobs:
           echo "### APK Size (${{ matrix.flavor }}): $size" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Artifacts
-        # actions/upload-artifact@v4
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: HaramVeil-${{ matrix.flavor }}-APK
           path: |
@@ -153,11 +140,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        # actions/checkout@v4
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@v4
       - name: Dependency Review
-        # actions/dependency-review-action@v4
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
+        uses: actions/dependency-review-action@v4
 
   release:
     name: Create Release
@@ -166,8 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: HaramVeil-*-APK
@@ -180,8 +164,7 @@ jobs:
           cp artifacts/*.sha256 release-assets/
 
       - name: Create Release
-        # softprops/action-gh-release@v2
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
           generate_release_notes: true
