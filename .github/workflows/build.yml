@@ -81,7 +81,8 @@ jobs:
     needs: [static-analysis, unit-tests]
     runs-on: ubuntu-latest
     strategy:
-      include:
+      matrix:
+        include:
         - flavor: fossOnnx
           task: assembleFossOnnxRelease
           apk_dir: fossOnnx
