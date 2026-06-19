@@ -399,10 +399,10 @@ class OnboardingViewModel(
             "com.her",
             "com.feeld",
             "com.uc.browser",
-            "com.Dolphin.mobile",
+            "com.dolphin.mobile",
             "com.maxthon.browser",
             "com.yandex.browser",
-            "com.puffinBrowser",
+            "com.puffinbrowser",
         )
         val keywordMatches = listOf(
             "browser",

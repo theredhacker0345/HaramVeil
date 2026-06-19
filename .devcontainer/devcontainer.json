@@ -3,7 +3,7 @@
   "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/android-sdk:1": {
-      "PACKAGES": "platform-tools;latest platforms;android-36 build-tools;36.0.0"
+      "PACKAGES": "platform-tools;platforms;android-36;build-tools;36.0.0"
     },
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },

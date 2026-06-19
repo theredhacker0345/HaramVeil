@@ -17,18 +17,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        # actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-home-cache-cleanup: true
+        # gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70
 
       - name: Run Detekt
         run: ./gradlew detekt
@@ -41,7 +42,8 @@ jobs:
 
       - name: Upload Lint Reports
         if: always()
-        uses: actions/upload-artifact@v4
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: lint-reports
           path: app/build/reports/lint-results-*
@@ -51,29 +53,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        # actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+        # gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70
 
       - name: Run Unit Tests
         run: ./gradlew testFossOnnxDebugUnitTest testMlkitDebugUnitTest
 
       - name: Publish Test Report
-        uses: mikepenz/action-junit-report@v4
+        # mikepenz/action-junit-report@v4
+        uses: mikepenz/action-junit-report@db71d41eb79864e25ab0337e395c352e84523afe
         if: always() # always run even if the previous step fails
         with:
           report_paths: '**/build/test-results/**/*.xml'
 
       - name: Upload Test Results
         if: always()
-        uses: actions/upload-artifact@v4
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: test-results
           path: app/build/test-results/**/*.xml
@@ -83,26 +90,28 @@ jobs:
     needs: [static-analysis, unit-tests]
     runs-on: ubuntu-latest
     strategy:
-      matrix:
-        include:
-          - flavor: fossOnnx
-            task: assembleFossOnnxRelease
-            apk_dir: fossOnnx
-          - flavor: mlkit
-            task: assembleMlkitRelease
-            apk_dir: mlkit
+      include:
+        - flavor: fossOnnx
+          task: assembleFossOnnxRelease
+          apk_dir: fossOnnx
+        - flavor: mlkit
+          task: assembleMlkitRelease
+          apk_dir: mlkit
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        # actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+        # gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70
         with:
           add-job-summary: 'on'
 
@@ -113,20 +122,25 @@ jobs:
         id: apk-path
         run: |
           APK_PATH=$(find app/build/outputs/apk/${{ matrix.apk_dir }}/release/ -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK found in app/build/outputs/apk/${{ matrix.apk_dir }}/release/"
+            exit 1
+          fi
           echo "path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "filename=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
+          echo "filename=$(basename "$APK_PATH")" >> $GITHUB_OUTPUT
 
       - name: Generate Checksum
         run: |
-          sha256sum ${{ steps.apk-path.outputs.path }} > ${{ steps.apk-path.outputs.path }}.sha256
+          sha256sum "${{ steps.apk-path.outputs.path }}" > "${{ steps.apk-path.outputs.path }}.sha256"
 
       - name: APK Size Check
         run: |
-          size=$(du -h ${{ steps.apk-path.outputs.path }} | cut -f1)
+          size=$(du -h "${{ steps.apk-path.outputs.path }}" | cut -f1)
           echo "### APK Size (${{ matrix.flavor }}): $size" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: HaramVeil-${{ matrix.flavor }}-APK
           path: |
@@ -139,9 +153,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        # actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
 
   release:
     name: Create Release
@@ -150,7 +166,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: artifacts
           pattern: HaramVeil-*-APK
@@ -163,7 +180,8 @@ jobs:
           cp artifacts/*.sha256 release-assets/
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        # softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: release-assets/*
           generate_release_notes: true
