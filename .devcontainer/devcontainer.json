@@ -1,0 +1,34 @@
+{
+  "name": "HaramVeil Android Dev",
+  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/android-sdk:1": {
+      "PACKAGES": "platform-tools;latest platforms;android-36 build-tools;36.0.0"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "forwardPorts": [],
+  "postCreateCommand": "sudo chown -R vscode:vscode /opt/android-sdk 2>/dev/null || true && ./gradlew --version",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "mathiasfrohlich.Kotlin",
+        "fwcd.kotlin",
+        "redhat.fabric8-analytics",
+        "GitHub.vscode-github-actions"
+      ],
+      "settings": {
+        "java.configuration.runtimes": [
+          {
+            "name": "JavaSE-21",
+            "path": "/usr/lib/jvm/msopenjdk-21"
+          }
+        ]
+      }
+    }
+  },
+  "remoteEnv": {
+    "ANDROID_HOME": "/opt/android-sdk",
+    "ANDROID_SDK_ROOT": "/opt/android-sdk"
+  }
+}

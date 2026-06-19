@@ -22,6 +22,13 @@ plugins {
     id("io.gitlab.arturbosch.detekt")
 }
 
+kotlin {
+    jvmToolchain(21)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 android {
     namespace = "com.haramveil"
     compileSdk = 36

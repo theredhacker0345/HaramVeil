@@ -399,7 +399,7 @@ class OnboardingViewModel(
             "com.her",
             "com.feeld",
             "com.uc.browser",
-            "com. Dolphin.mobile",
+            "com.Dolphin.mobile",
             "com.maxthon.browser",
             "com.yandex.browser",
             "com.puffinBrowser",
