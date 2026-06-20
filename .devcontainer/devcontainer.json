@@ -7,7 +7,10 @@
       "installMaven": false,
       "installGradle": false
     },
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
   },
   "forwardPorts": [],
   "postCreateCommand": "bash .devcontainer/setup-android-sdk.sh",
