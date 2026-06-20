@@ -117,12 +117,7 @@ jobs:
             adb shell uiautomator dump /sdcard/ui_tmp.xml
             adb pull /sdcard/ui_tmp.xml /tmp/ui_tmp.xml
             COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp.xml "Begin Setup")
-            if [ -n "$COORDS" ]; then
-              echo ">>> Tapping 'Begin Setup' at $COORDS"
-              adb shell input tap $COORDS
-            else
-              echo ">>> Could not find 'Begin Setup' button"
-            fi
+            [ -n "$COORDS" ] && echo ">>> Tapping 'Begin Setup' at $COORDS" && adb shell input tap $COORDS || echo ">>> Could not find 'Begin Setup' button"
             sleep 5
 
             echo "=== Screenshot 2: After tapping Begin Setup ==="
@@ -135,21 +130,10 @@ jobs:
             adb shell uiautomator dump /sdcard/ui_tmp2.xml
             adb pull /sdcard/ui_tmp2.xml /tmp/ui_tmp2.xml
             COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Continue")
-            if [ -z "$COORDS" ]; then
-              COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Next")
-            fi
-            if [ -z "$COORDS" ]; then
-              COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "I Understand")
-            fi
-            if [ -z "$COORDS" ]; then
-              COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Agree")
-            fi
-            if [ -n "$COORDS" ]; then
-              echo ">>> Tapping continue button at $COORDS"
-              adb shell input tap $COORDS
-            else
-              echo ">>> No continue button found"
-            fi
+            [ -z "$COORDS" ] && COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Next")
+            [ -z "$COORDS" ] && COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "I Understand")
+            [ -z "$COORDS" ] && COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Agree")
+            [ -n "$COORDS" ] && echo ">>> Tapping continue button at $COORDS" && adb shell input tap $COORDS || echo ">>> No continue button found"
             sleep 4
 
             echo "=== Screenshot 3: After continuing ==="
