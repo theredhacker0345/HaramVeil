@@ -113,25 +113,16 @@ jobs:
             echo "=== Current focused activity ==="
             adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -2
 
-            # Helper: find clickable element by text using external Python script
-            find_and_tap() {
-              local label="$1"
-              adb shell uiautomator dump /sdcard/ui_tmp.xml >/dev/null 2>&1
-              adb pull /sdcard/ui_tmp.xml /tmp/ui_tmp.xml >/dev/null 2>&1
-              local coords
-              coords=$(python3 .github/scripts/find_element.py /tmp/ui_tmp.xml "$label" 2>/dev/null)
-              if [ -n "$coords" ]; then
-                echo ">>> Tapping '$label' at $coords"
-                adb shell input tap $coords
-                return 0
-              else
-                echo ">>> Could not find clickable node with text '$label'"
-                return 1
-              fi
-            }
-
             echo "=== Tapping 'Begin Setup' button (human-like) ==="
-            find_and_tap "Begin Setup"
+            adb shell uiautomator dump /sdcard/ui_tmp.xml
+            adb pull /sdcard/ui_tmp.xml /tmp/ui_tmp.xml
+            COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp.xml "Begin Setup")
+            if [ -n "$COORDS" ]; then
+              echo ">>> Tapping 'Begin Setup' at $COORDS"
+              adb shell input tap $COORDS
+            else
+              echo ">>> Could not find 'Begin Setup' button"
+            fi
             sleep 5
 
             echo "=== Screenshot 2: After tapping Begin Setup ==="
@@ -141,7 +132,24 @@ jobs:
             adb pull /sdcard/ui2.xml screenshots/ui2_after_begin.xml
 
             echo "=== Tapping 'Continue' or 'Next' if present ==="
-            find_and_tap "Continue" || find_and_tap "Next" || find_and_tap "I Understand" || find_and_tap "Agree" || echo "No continue button found"
+            adb shell uiautomator dump /sdcard/ui_tmp2.xml
+            adb pull /sdcard/ui_tmp2.xml /tmp/ui_tmp2.xml
+            COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Continue")
+            if [ -z "$COORDS" ]; then
+              COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Next")
+            fi
+            if [ -z "$COORDS" ]; then
+              COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "I Understand")
+            fi
+            if [ -z "$COORDS" ]; then
+              COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Agree")
+            fi
+            if [ -n "$COORDS" ]; then
+              echo ">>> Tapping continue button at $COORDS"
+              adb shell input tap $COORDS
+            else
+              echo ">>> No continue button found"
+            fi
             sleep 4
 
             echo "=== Screenshot 3: After continuing ==="
