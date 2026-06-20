@@ -11,6 +11,9 @@ on:
 env:
   GRADLE_OPTS: "-Xmx3072m -Dorg.gradle.daemon=false"
 
+permissions:
+  contents: write
+
 jobs:
   static-analysis:
     name: Static Analysis
