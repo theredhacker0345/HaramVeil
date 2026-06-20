@@ -120,9 +120,12 @@ jobs:
             echo "=== Tapping 'Begin Setup' button (human-like) ==="
             adb shell uiautomator dump /sdcard/ui_tmp.xml
             adb pull /sdcard/ui_tmp.xml /tmp/ui_tmp.xml
-            COORDS=$(python3 "$GITHUB_WORKSPACE/.github/scripts/find_element.py" /tmp/ui_tmp.xml "Begin Setup")
+            cp /tmp/ui_tmp.xml screenshots/ui_tmp_begingsetup.xml
+            echo ">>> UI dump size: $(wc -c < /tmp/ui_tmp.xml) bytes"
+            COORDS=$(python3 "$GITHUB_WORKSPACE/.github/scripts/find_element.py" /tmp/ui_tmp.xml "Begin Setup" 2>&1)
             echo ">>> COORDS for 'Begin Setup': '$COORDS'"
-            [ -n "$COORDS" ] && echo ">>> Tapping 'Begin Setup' at $COORDS" && adb shell input tap $COORDS || echo ">>> Could not find 'Begin Setup' button"
+            [ -n "$COORDS" ] && echo ">>> Tapping 'Begin Setup' at $COORDS" && adb shell input tap $COORDS
+            [ -z "$COORDS" ] && echo ">>> Falling back to hardcoded tap at (540, 1921)" && adb shell input tap 540 1921
             sleep 5
 
             echo "=== Screenshot 2: After tapping Begin Setup ==="
