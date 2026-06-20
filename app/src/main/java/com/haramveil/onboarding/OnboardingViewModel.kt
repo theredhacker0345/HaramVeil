@@ -100,14 +100,6 @@ class OnboardingViewModel(
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
-    /**
-     * Callback the UI invokes when the user taps "Import 640 Model".
-     * The Activity registers an ActivityResultLauncher and sets this to the
-     * launcher's `launch(uri)` function so we don't need an Activity ref here.
-     */
-    @Volatile
-    var importModelLauncherRequested: () -> Unit = {}
-
     init {
         loadInitialState()
         refreshModelInstallState()

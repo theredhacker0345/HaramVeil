@@ -136,6 +136,7 @@ private enum class AppDestination(
 @Composable
 fun HaramVeilRoot(
     viewModel: OnboardingViewModel,
+    onImportModelRequested: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -202,7 +203,7 @@ fun HaramVeilRoot(
                 onMode3Changed = viewModel::toggleMode3,
                 onTextEngineSelected = viewModel::selectTextEngine,
                 onVisualModelSelected = viewModel::selectVisualModel,
-                onImportModelRequested = viewModel::importModelLauncherRequested,
+                onImportModelRequested = onImportModelRequested,
                 isModel640Installed = uiState.isModel640Installed,
                 isImporting = uiState.isImportingModel,
                 importMessage = uiState.modelImportMessage,

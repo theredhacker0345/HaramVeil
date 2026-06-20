@@ -57,12 +57,12 @@ class MainActivity : ComponentActivity() {
             HaramVeilTheme {
                 val onboardingViewModel: OnboardingViewModel = viewModel()
                 this.onboardingViewModel = onboardingViewModel
-                // Wire the launcher to the ViewModel so the "Import 640 Model" button
-                // can trigger the system file picker.
-                onboardingViewModel.importModelLauncherRequested = {
-                    modelImportLauncher.launch(arrayOf("application/octet-stream", "*/*"))
-                }
-                HaramVeilRoot(viewModel = onboardingViewModel)
+                HaramVeilRoot(
+                    viewModel = onboardingViewModel,
+                    onImportModelRequested = {
+                        modelImportLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+                    },
+                )
             }
         }
     }
