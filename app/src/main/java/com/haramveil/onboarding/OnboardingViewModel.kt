@@ -21,11 +21,13 @@ package com.haramveil.onboarding
 import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.haramveil.data.local.OnboardingPreferencesRepository
 import com.haramveil.data.models.BenchmarkResult
 import com.haramveil.data.models.InstalledAppInfo
+import com.haramveil.data.models.ModelImportManager
 import com.haramveil.data.models.SecurityQuestion
 import com.haramveil.data.models.TextRecognitionEngine
 import com.haramveil.data.models.VisualModelOption
@@ -66,6 +68,9 @@ data class OnboardingUiState(
     val appSelectionSaved: Boolean = false,
     val hasPinConfigured: Boolean = false,
     val securitySetupSaved: Boolean = false,
+    val isModel640Installed: Boolean = false,
+    val isImportingModel: Boolean = false,
+    val modelImportMessage: String? = null,
 ) {
     val recommendedTextEngine: TextRecognitionEngine
         get() = if (isDeGoogledDevice) TextRecognitionEngine.FOSS_ONNX else TextRecognitionEngine.ML_KIT
@@ -90,12 +95,68 @@ class OnboardingViewModel(
     private val pinManager = PinManager(applicationContext)
     private val securityQuestionsManager = SecurityQuestionsManager(applicationContext)
     private val benchmarkRunner = OnnxBenchmarkRunner(applicationContext)
+    private val modelImportManager = ModelImportManager(applicationContext)
 
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
+    /**
+     * Callback the UI invokes when the user taps "Import 640 Model".
+     * The Activity registers an ActivityResultLauncher and sets this to the
+     * launcher's `launch(uri)` function so we don't need an Activity ref here.
+     */
+    var importModelLauncherRequested: () -> Unit = {}
+        internal set
+
     init {
         loadInitialState()
+        refreshModelInstallState()
+    }
+
+    private fun refreshModelInstallState() {
+        val installed = modelImportManager.isModelInstalled(VisualModelOption.MODEL_640)
+        _uiState.update { it.copy(isModel640Installed = installed) }
+    }
+
+    /**
+     * Called by the Activity's ActivityResultLauncher callback when the user picks a file.
+     */
+    fun onModelFilePicked(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isImportingModel = true, modelImportMessage = null) }
+            val result = modelImportManager.importModel(uri, VisualModelOption.MODEL_640)
+            when (result) {
+                is ModelImportManager.ImportResult.Success -> {
+                    refreshModelInstallState()
+                    // Re-run benchmark so the 640 latency is populated and the user can select it.
+                    runBenchmark()
+                    _uiState.update {
+                        it.copy(
+                            isImportingModel = false,
+                            modelImportMessage = "Success! 640 model imported. You can now select it above.",
+                        )
+                    }
+                }
+                is ModelImportManager.ImportResult.Failure -> {
+                    _uiState.update {
+                        it.copy(
+                            isImportingModel = false,
+                            modelImportMessage = result.reason,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Opens the user's browser at the NudeNet releases page so they can download 640m.onnx.
+     * Works without INTERNET permission because the browser (not the app) does the download.
+     */
+    fun openDownloadPage() {
+        val intent = modelImportManager.buildDownloadInstructionsIntent()
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { applicationContext.startActivity(intent) }
     }
 
     fun toggleMode1(enabled: Boolean) {

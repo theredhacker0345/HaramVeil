@@ -233,15 +233,23 @@ fun AdvancedSettingsScreen(
                     FilterChip(
                         selected = selectedVisualModel == VisualModelOption.MODEL_320,
                         onClick = { onVisualModelSelected(VisualModelOption.MODEL_320) },
-                        label = { Text("320") },
+                        label = { Text("320 (Bundled)") },
                     )
                     if (supports640Model) {
                         FilterChip(
                             selected = selectedVisualModel == VisualModelOption.MODEL_640,
                             onClick = { onVisualModelSelected(VisualModelOption.MODEL_640) },
-                            label = { Text("640") },
+                            label = { Text("640 (Enhanced)") },
                         )
                     }
+                }
+                if (!supports640Model) {
+                    Text(
+                        text = "To use the 640 model, import it from the onboarding screen " +
+                            "(Settings → Re-run onboarding, then tap \"Import 640 Model\").",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 6.dp),

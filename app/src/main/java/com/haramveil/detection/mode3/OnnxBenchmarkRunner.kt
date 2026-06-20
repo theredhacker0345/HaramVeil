@@ -26,6 +26,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.Process
 import com.haramveil.data.models.BenchmarkResult
+import com.haramveil.data.models.ModelImportManager
+import com.haramveil.data.models.ModelSource
 import com.haramveil.data.models.VisualModelOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,6 +37,8 @@ import kotlin.system.measureTimeMillis
 
 class OnnxBenchmarkRunner(
     private val context: Context,
+    private val modelImportManager: ModelImportManager =
+        ModelImportManager(context.applicationContext),
 ) {
 
     suspend fun run(): BenchmarkResult =
@@ -42,7 +46,14 @@ class OnnxBenchmarkRunner(
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
 
             val latency320 = benchmarkModel(VisualModelOption.MODEL_320)
-            val latency640 = benchmarkModel(VisualModelOption.MODEL_640)
+
+            // Only benchmark 640 if the user has imported it — otherwise skip silently.
+            val latency640 = if (modelImportManager.isModelInstalled(VisualModelOption.MODEL_640)) {
+                benchmarkModel(VisualModelOption.MODEL_640)
+            } else {
+                null
+            }
+
             val supportedModel =
                 when {
                     latency640 != null && latency640 <= LatencyBudgetMs -> VisualModelOption.MODEL_640
@@ -56,7 +67,7 @@ class OnnxBenchmarkRunner(
                 supportedModel = supportedModel,
                 latencyBudgetMs = LatencyBudgetMs,
                 errorMessage = if (latency320 == null && latency640 == null) {
-                    "Both ONNX benchmark passes failed on this device."
+                    "ONNX benchmark failed on this device."
                 } else {
                     null
                 },
@@ -65,11 +76,12 @@ class OnnxBenchmarkRunner(
 
     private fun benchmarkModel(model: VisualModelOption): Long? =
         runCatching {
-            val temporaryModel = copyAssetToCache(model.assetName)
+            val modelFile = resolveModelFile(model)
+            val isCachedCopy = model.source == ModelSource.BUNDLED_ASSET
             try {
                 val environment = OrtEnvironment.getEnvironment()
                 OrtSession.SessionOptions().use { sessionOptions ->
-                    environment.createSession(temporaryModel.absolutePath, sessionOptions).use { session ->
+                    environment.createSession(modelFile.absolutePath, sessionOptions).use { session ->
                         val inputEntry = session.inputInfo.entries.first()
                         val tensorInfo = inputEntry.value.info as TensorInfo
                         val inputShape = tensorInfo.shape.mapIndexed { index, dimension ->
@@ -99,9 +111,29 @@ class OnnxBenchmarkRunner(
                     }
                 }
             } finally {
-                temporaryModel.delete()
+                // Only delete the cached copy for bundled assets; imported files persist.
+                if (isCachedCopy) modelFile.delete()
             }
         }.getOrNull()
+
+    /**
+     * Resolves the on-disk file for [model]. Bundled assets are copied to cacheDir;
+     * imported files are loaded directly from filesDir/models/.
+     */
+    private fun resolveModelFile(model: VisualModelOption): File {
+        return when (model.source) {
+            ModelSource.BUNDLED_ASSET -> {
+                val assetName = model.assetName ?: error("Bundled model has no asset name")
+                copyAssetToCache(assetName)
+            }
+            ModelSource.IMPORTED_FILE -> {
+                val fileName = model.assetName ?: error("Imported model has no file name")
+                File(context.filesDir, "models/$fileName").also { file ->
+                    check(file.exists()) { "Imported model not found at ${file.absolutePath}" }
+                }
+            }
+        }
+    }
 
     private fun copyAssetToCache(assetName: String): File {
         val cachedModelFile = File(context.cacheDir, assetName)

@@ -18,9 +18,12 @@
 
 package com.haramveil
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.haramveil.onboarding.HaramVeilRoot
 import com.haramveil.onboarding.OnboardingViewModel
@@ -28,11 +31,37 @@ import com.haramveil.ui.theme.HaramVeilTheme
 
 class MainActivity : ComponentActivity() {
 
+    private var onboardingViewModel: OnboardingViewModel? = null
+
+    /**
+     * Launcher for the Android file picker (Storage Access Framework).
+     * Used to import the 640m ONNX model without the app needing the INTERNET permission.
+     */
+    private lateinit var modelImportLauncher: ActivityResultLauncher<Array<String>>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Register the file-picker launcher before the content view is set.
+        // ONNX files don't have a registered MIME type on Android, so we accept
+        // application/octet-stream (the generic binary MIME) plus the catch-all */*.
+        modelImportLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocument(),
+        ) { uri: Uri? ->
+            uri?.let { importedUri ->
+                onboardingViewModel?.onModelFilePicked(importedUri)
+            }
+        }
+
         setContent {
             HaramVeilTheme {
                 val onboardingViewModel: OnboardingViewModel = viewModel()
+                this.onboardingViewModel = onboardingViewModel
+                // Wire the launcher to the ViewModel so the "Import 640 Model" button
+                // can trigger the system file picker.
+                onboardingViewModel.importModelLauncherRequested = {
+                    modelImportLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+                }
                 HaramVeilRoot(viewModel = onboardingViewModel)
             }
         }

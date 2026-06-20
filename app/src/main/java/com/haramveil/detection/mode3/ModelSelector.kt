@@ -21,6 +21,8 @@ package com.haramveil.detection.mode3
 import android.content.Context
 import com.haramveil.data.local.OnboardingPreferencesRepository
 import com.haramveil.data.local.ProtectionPreferencesRepository
+import com.haramveil.data.models.ModelImportManager
+import com.haramveil.data.models.ModelSource
 import com.haramveil.data.models.VisualModelOption
 
 data class ModelConfig(
@@ -32,6 +34,7 @@ data class ModelConfig(
 data class ModelSelectionState(
     val modelConfig: ModelConfig,
     val supports640Model: Boolean,
+    val installedModels: Set<VisualModelOption>,
 )
 
 class ModelSelector(
@@ -40,6 +43,8 @@ class ModelSelector(
         ProtectionPreferencesRepository(context.applicationContext),
     private val onboardingPreferencesRepository: OnboardingPreferencesRepository =
         OnboardingPreferencesRepository(context.applicationContext),
+    private val modelImportManager: ModelImportManager =
+        ModelImportManager(context.applicationContext),
 ) {
 
     suspend fun select(): ModelConfig = readSelectionState().modelConfig
@@ -50,22 +55,31 @@ class ModelSelector(
         val supportedModel = onboardingSnapshot.benchmarkResult?.supportedModel
         val preferredModel = protectionSettings.selectedVisualModel ?: onboardingSnapshot.selectedVisualModel
 
+        val installedModels = VisualModelOption.entries
+            .filter { modelImportManager.isModelInstalled(it) }
+            .toSet()
+
         val resolvedModel = when {
-            supportedModel == VisualModelOption.MODEL_640 &&
-                preferredModel == VisualModelOption.MODEL_640 -> VisualModelOption.MODEL_640
-            supportedModel == VisualModelOption.MODEL_640 -> VisualModelOption.MODEL_320
-            supportedModel == VisualModelOption.MODEL_320 -> VisualModelOption.MODEL_320
-            preferredModel == VisualModelOption.MODEL_320 -> VisualModelOption.MODEL_320
+            // User picked 640 AND it's actually installed → use it
+            preferredModel == VisualModelOption.MODEL_640 &&
+                VisualModelOption.MODEL_640 in installedModels -> VisualModelOption.MODEL_640
+
+            // User picked custom AND it's installed → use it
+            preferredModel == VisualModelOption.MODEL_CUSTOM &&
+                VisualModelOption.MODEL_CUSTOM in installedModels -> VisualModelOption.MODEL_CUSTOM
+
+            // Fallback: always have 320 (bundled)
             else -> VisualModelOption.MODEL_320
         }
 
         return ModelSelectionState(
             modelConfig = ModelConfig(
                 visualModel = resolvedModel,
-                assetPath = resolvedModel.assetName,
+                assetPath = resolvedModel.assetName.orEmpty(),
                 inputSize = resolvedModel.inputSize,
             ),
-            supports640Model = supportedModel == VisualModelOption.MODEL_640,
+            supports640Model = VisualModelOption.MODEL_640 in installedModels,
+            installedModels = installedModels,
         )
     }
 }

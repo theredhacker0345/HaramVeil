@@ -65,6 +65,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -201,6 +202,10 @@ fun HaramVeilRoot(
                 onMode3Changed = viewModel::toggleMode3,
                 onTextEngineSelected = viewModel::selectTextEngine,
                 onVisualModelSelected = viewModel::selectVisualModel,
+                onImportModelRequested = viewModel::importModelLauncherRequested,
+                isModel640Installed = uiState.isModel640Installed,
+                isImporting = uiState.isImportingModel,
+                importMessage = uiState.modelImportMessage,
                 onContinue = {
                     launchPersistAndNavigate(scope) {
                         viewModel.persistModeConfiguration()
@@ -360,6 +365,10 @@ private fun CapabilityBenchmarkScreen(
     onMode3Changed: (Boolean) -> Unit,
     onTextEngineSelected: (TextRecognitionEngine) -> Unit,
     onVisualModelSelected: (VisualModelOption) -> Unit,
+    onImportModelRequested: () -> Unit,
+    isModel640Installed: Boolean,
+    isImporting: Boolean,
+    importMessage: String?,
     onContinue: () -> Unit,
 ) {
     OnboardingStepScreen(
@@ -427,6 +436,10 @@ private fun CapabilityBenchmarkScreen(
                         CapabilitySummaryCard(
                             uiState = uiState,
                             onVisualModelSelected = onVisualModelSelected,
+                            onImportModelRequested = onImportModelRequested,
+                            isModel640Installed = isModel640Installed,
+                            isImporting = isImporting,
+                            importMessage = importMessage,
                         )
                     },
                 )
@@ -467,6 +480,10 @@ private fun CapabilityBenchmarkScreen(
 private fun CapabilitySummaryCard(
     uiState: OnboardingUiState,
     onVisualModelSelected: (VisualModelOption) -> Unit,
+    onImportModelRequested: () -> Unit,
+    isModel640Installed: Boolean,
+    isImporting: Boolean,
+    importMessage: String?,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (uiState.benchmark.supportedModel != null) {
@@ -489,24 +506,71 @@ private fun CapabilitySummaryCard(
                     append("320 model: ")
                     append(uiState.benchmark.model320LatencyMs?.let { "$it ms" } ?: "failed")
                     append("  |  640 model: ")
-                    append(uiState.benchmark.model640LatencyMs?.let { "$it ms" } ?: "failed")
+                    if (isModel640Installed) {
+                        append(uiState.benchmark.model640LatencyMs?.let { "$it ms" } ?: "failed")
+                    } else {
+                        append("not installed")
+                    }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        if (uiState.benchmark.supportedModel == VisualModelOption.MODEL_640) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.FilterChip(
-                    selected = uiState.selectedVisualModel == VisualModelOption.MODEL_320,
-                    onClick = { onVisualModelSelected(VisualModelOption.MODEL_320) },
-                    label = { Text("Use 320") },
-                )
+        // Model selection — 320 is always available (bundled), 640 requires import.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.FilterChip(
+                selected = uiState.selectedVisualModel == VisualModelOption.MODEL_320,
+                onClick = { onVisualModelSelected(VisualModelOption.MODEL_320) },
+                label = { Text("320 (Bundled)") },
+            )
+            if (isModel640Installed) {
                 androidx.compose.material3.FilterChip(
                     selected = uiState.selectedVisualModel == VisualModelOption.MODEL_640,
                     onClick = { onVisualModelSelected(VisualModelOption.MODEL_640) },
-                    label = { Text("Use 640") },
+                    label = { Text("640 (Enhanced)") },
+                )
+            }
+        }
+
+        // Import section for the 640 model — shown when not installed.
+        if (!isModel640Installed) {
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            Text(
+                text = "640 Enhanced model (99 MB)",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "HaramVeil never connects to the internet. To use the more accurate 640 model, " +
+                    "download it yourself, then pick the file here.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onImportModelRequested, enabled = !isImporting) {
+                    if (isImporting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text("Import 640 Model")
+                    }
+                }
+            }
+            importMessage?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (message.startsWith("Success", ignoreCase = true)) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
                 )
             }
         }

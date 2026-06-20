@@ -24,7 +24,6 @@ Builds:
       - fossOnnx
     scanignore:
       - src/main/assets/320n.onnx
-      - src/main/assets/640m.onnx
     scandelete:
       - src/test/resources
       - src/androidTest/assets
@@ -33,13 +32,17 @@ MaintainerNotes: |
   This app is built using the fossOnnx flavor, which excludes all proprietary
   dependencies (Google Play Services, ML Kit). Only FOSS libraries are used.
 
-  The ONNX model files (320n.onnx, 640m.onnx) in src/main/assets/ are NudeNet
-  v3.4 weights from https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights
-  The upstream repository is AGPL-3.0 licensed. The weight files themselves do
-  not have a separate license file, but are distributed as part of the NudeNet
-  project release. They are pre-trained model weights (not executable code) and
-  are treated as data assets. scanignore is used to suppress F-Droid's binary
-  scanner for these files since they are known model weights.
+  The app bundles one ONNX model (320n.onnx, 12 MB) in src/main/assets/. This is
+  a NudeNet v3.4 weight file from https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights
+  The upstream repository is AGPL-3.0 licensed. The weight file is a pre-trained
+  neural network (data, not executable code) and is treated as a data asset.
+  scanignore is used to suppress F-Droid's binary scanner for this file.
+
+  The larger 640m.onnx (99 MB) model is NOT bundled in the APK. Instead, users
+  who want the "Enhanced" model download it themselves via their browser and
+  import it via the Android file picker (Storage Access Framework). This keeps
+  the APK small (164 MB instead of 263 MB) and preserves the no-INTERNET-permission
+  guarantee — the app never connects to the network; the user's browser does.
 
   The hadiths_ayahs.json asset contains Quranic verses and Hadith text which
   are centuries-old public domain religious texts.

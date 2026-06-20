@@ -24,6 +24,8 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.os.SystemClock
+import com.haramveil.data.models.ModelSource
+import com.haramveil.data.models.VisualModelOption
 import com.haramveil.utils.DispatcherProvider
 import com.haramveil.utils.DebugLog
 import kotlinx.coroutines.withContext
@@ -149,16 +151,48 @@ class NudeNetInferenceEngine(
 
             activeSession?.close()
             cachedModelFile?.delete()
-            val modelFile = copyAssetToCache(modelConfig.assetPath)
+            val modelFile = resolveModelFile(modelConfig)
             val session = OrtSession.SessionOptions().use { sessionOptions ->
                 sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
                 environment.createSession(modelFile.absolutePath, sessionOptions)
             }
 
-            cachedModelFile = modelFile
+            // Only cache the file for deletion if we created a copy in cacheDir.
+            // Imported models in filesDir should NOT be deleted on session close.
+            if (modelFile.parentFile == context.cacheDir) {
+                cachedModelFile = modelFile
+            } else {
+                cachedModelFile = null
+            }
             activeModelConfig = modelConfig
             activeSession = session
             return session
+        }
+    }
+
+    /**
+     * Resolves the on-disk [File] for the given [modelConfig].
+     *
+     * - Bundled assets are copied from `assets/` into `cacheDir/` (same as before).
+     * - Imported files live in `filesDir/models/` and are loaded directly without copying.
+     */
+    private fun resolveModelFile(modelConfig: ModelConfig): File {
+        val visualModel = modelConfig.visualModel
+        return when (visualModel.source) {
+            ModelSource.BUNDLED_ASSET -> {
+                val assetName = visualModel.assetName
+                    ?: error("Bundled model ${visualModel.name} has no asset name")
+                copyAssetToCache(assetName)
+            }
+            ModelSource.IMPORTED_FILE -> {
+                val fileName = visualModel.assetName
+                    ?: error("Imported model ${visualModel.name} has no file name")
+                File(context.filesDir, "models/$fileName").also { file ->
+                    check(file.exists()) {
+                        "Imported model ${visualModel.name} is not installed at ${file.absolutePath}"
+                    }
+                }
+            }
         }
     }
 

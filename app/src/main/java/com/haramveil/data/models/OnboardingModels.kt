@@ -41,20 +41,30 @@ enum class TextRecognitionEngine(
 enum class VisualModelOption(
     val storageValue: String,
     val displayName: String,
-    val assetName: String,
+    val assetName: String?,
     val inputSize: Int,
+    val source: ModelSource,
 ) {
     MODEL_320(
         storageValue = "model_320",
-        displayName = "320",
+        displayName = "320 (Bundled)",
         assetName = "320n.onnx",
         inputSize = 320,
+        source = ModelSource.BUNDLED_ASSET,
     ),
     MODEL_640(
         storageValue = "model_640",
-        displayName = "640",
+        displayName = "640 (Enhanced)",
         assetName = "640m.onnx",
         inputSize = 640,
+        source = ModelSource.IMPORTED_FILE,
+    ),
+    MODEL_CUSTOM(
+        storageValue = "model_custom",
+        displayName = "Custom Model",
+        assetName = "custom.onnx",
+        inputSize = 320,
+        source = ModelSource.IMPORTED_FILE,
     ),
     ;
 
@@ -62,6 +72,20 @@ enum class VisualModelOption(
         fun fromStorageValue(value: String?): VisualModelOption? =
             entries.firstOrNull { it.storageValue == value }
     }
+}
+
+/**
+ * Indicates where a [VisualModelOption] gets its ONNX weights from.
+ *
+ * - [BUNDLED_ASSET]: shipped inside the APK under `assets/` (e.g. the 12 MB 320n model).
+ * - [IMPORTED_FILE]: user-downloaded `.onnx` file that the app copies from the Android
+ *   file picker (Storage Access Framework) into its private files dir. This keeps the
+ *   app free of the INTERNET permission — the user downloads the model with their own
+ *   browser, then hands the file to HaramVeil via the system file picker.
+ */
+enum class ModelSource {
+    BUNDLED_ASSET,
+    IMPORTED_FILE,
 }
 
 data class InstalledAppInfo(
