@@ -76,6 +76,9 @@ jobs:
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
           script: |
+            echo "=== Creating screenshots directory ==="
+            mkdir -p screenshots
+
             echo "=== Waiting for boot ==="
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
@@ -94,7 +97,7 @@ jobs:
 
             echo "=== Launching HaramVeil app ==="
             adb shell am start -n com.haramveil/.MainActivity
-            sleep 8
+            sleep 10
 
             echo "=== Taking screenshot 1 (app launched) ==="
             adb shell screencap -p /sdcard/screen1.png
@@ -133,9 +136,10 @@ jobs:
             adb pull /sdcard/ui2.xml screenshots/ui2_tap.xml
 
             echo "=== Final logcat ==="
-            adb logcat -d 2>&1 | tail -50 > screenshots/logcat.txt
+            adb logcat -d 2>&1 | tail -100 > screenshots/logcat.txt
 
-            echo "=== Done! ==="
+            echo "=== All screenshots captured! ==="
+            ls -la screenshots/
 
       - name: Upload screenshots and UI dumps
         if: always()
