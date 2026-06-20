@@ -79,6 +79,10 @@ jobs:
             echo "=== Creating screenshots directory ==="
             mkdir -p screenshots
 
+            echo "=== Working directory ==="
+            pwd
+            ls .github/scripts/find_element.py
+
             echo "=== Waiting for boot ==="
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
@@ -116,7 +120,8 @@ jobs:
             echo "=== Tapping 'Begin Setup' button (human-like) ==="
             adb shell uiautomator dump /sdcard/ui_tmp.xml
             adb pull /sdcard/ui_tmp.xml /tmp/ui_tmp.xml
-            COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp.xml "Begin Setup" || true)
+            COORDS=$(python3 "$GITHUB_WORKSPACE/.github/scripts/find_element.py" /tmp/ui_tmp.xml "Begin Setup")
+            echo ">>> COORDS for 'Begin Setup': '$COORDS'"
             [ -n "$COORDS" ] && echo ">>> Tapping 'Begin Setup' at $COORDS" && adb shell input tap $COORDS || echo ">>> Could not find 'Begin Setup' button"
             sleep 5
 
@@ -129,10 +134,11 @@ jobs:
             echo "=== Tapping 'Continue' or 'Next' if present ==="
             adb shell uiautomator dump /sdcard/ui_tmp2.xml
             adb pull /sdcard/ui_tmp2.xml /tmp/ui_tmp2.xml
-            COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Continue" || true)
-            [ -z "$COORDS" ] && COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Next" || true)
-            [ -z "$COORDS" ] && COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "I Understand" || true)
-            [ -z "$COORDS" ] && COORDS=$(python3 .github/scripts/find_element.py /tmp/ui_tmp2.xml "Agree" || true)
+            COORDS=$(python3 "$GITHUB_WORKSPACE/.github/scripts/find_element.py" /tmp/ui_tmp2.xml "Continue")
+            echo ">>> COORDS for 'Continue': '$COORDS'"
+            [ -z "$COORDS" ] && COORDS=$(python3 "$GITHUB_WORKSPACE/.github/scripts/find_element.py" /tmp/ui_tmp2.xml "Next")
+            [ -z "$COORDS" ] && COORDS=$(python3 "$GITHUB_WORKSPACE/.github/scripts/find_element.py" /tmp/ui_tmp2.xml "I Understand")
+            [ -z "$COORDS" ] && COORDS=$(python3 "$GITHUB_WORKSPACE/.github/scripts/find_element.py" /tmp/ui_tmp2.xml "Agree")
             [ -n "$COORDS" ] && echo ">>> Tapping continue button at $COORDS" && adb shell input tap $COORDS || echo ">>> No continue button found"
             sleep 4
 
