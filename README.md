@@ -4,6 +4,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Android Version](https://img.shields.io/badge/Android-10+-green.svg?logo=android&logoColor=white)](https://developer.android.com/about/versions/10)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![F-Droid FOSS](https://img.shields.io/badge/F--Droid-FOSS%20Ready-brightgreen.svg?logo=f-droid&logoColor=white)](https://f-droid.org/)
 
 > "Tell the believing men to lower their gaze and guard their private parts. That is purer for them." - **Quran 24:30**
 
@@ -96,12 +97,30 @@ HaramVeil is available in two flavors to suit different user needs:
 ## 🚀 Installation & Setup
 
 ### For Users
+
+#### Option A: F-Droid (Recommended)
+Once the app is accepted into the main F-Droid repository:
+1. Open [F-Droid](https://f-droid.org/) on your device.
+2. Search for "HaramVeil".
+3. Tap Install.
+
+The F-Droid build uses the `fossOnnx` flavor — 100% open-source, no Google dependencies, no INTERNET permission.
+
+#### Option B: Direct APK Download
 1. Download the latest APK from the [Releases](https://github.com/darkmaster0345/HaramVeil/releases) page.
     - Choose `HaramVeil-fossOnnx-release.apk` for the fully open-source version.
     - Choose `HaramVeil-mlkit-release.apk` for the Google ML Kit version (slightly faster OCR).
 2. Install the APK (allow "Unknown Sources" if prompted).
 3. **Important**: Grant **Accessibility** and **Display over other apps** (Overlay) permissions during onboarding.
 4. Set a strong PIN and choose recovery questions you will remember.
+
+#### Option C: Build from Source
+```bash
+git clone https://github.com/darkmaster0345/HaramVeil.git
+cd HaramVeil
+./gradlew :app:assembleFossOnnxRelease
+# APK: app/build/outputs/apk/fossOnnx/release/app-fossOnnx-release-unsigned.apk
+```
 
 ### For Developers
 1. **Prerequisites**: Android Studio Ladybug+, JDK 17, Android SDK 36.

@@ -1,12 +1,20 @@
 Categories:
   - Security
   - Religion
+  - Internet
 License: GPL-3.0-only
+AuthorName: Ubaid ur Rehman
+AuthorWebSite: https://github.com/darkmaster0345
+WebSite: https://github.com/darkmaster0345/HaramVeil
 SourceCode: https://github.com/darkmaster0345/HaramVeil
 IssueTracker: https://github.com/darkmaster0345/HaramVeil/issues
+Changelog: https://github.com/darkmaster0345/HaramVeil/releases
 AutoName: HaramVeil
 RepoType: git
 Repo: https://github.com/darkmaster0345/HaramVeil.git
+
+Binaries: https://github.com/darkmaster0345/HaramVeil/releases/download/v%v/HaramVeil-fossOnnx-release-unsigned.apk
+
 Builds:
   - versionName: 1.0.0
     versionCode: 1
@@ -14,6 +22,40 @@ Builds:
     subdir: app
     gradle:
       - fossOnnx
+    scanignore:
+      - src/main/assets/320n.onnx
+      - src/main/assets/640m.onnx
+    scandelete:
+      - src/test/resources
+      - src/androidTest/assets
+
+MaintainerNotes: |
+  This app is built using the fossOnnx flavor, which excludes all proprietary
+  dependencies (Google Play Services, ML Kit). Only FOSS libraries are used.
+
+  The ONNX model files (320n.onnx, 640m.onnx) in src/main/assets/ are NudeNet
+  v3.4 weights from https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights
+  The upstream repository is AGPL-3.0 licensed. The weight files themselves do
+  not have a separate license file, but are distributed as part of the NudeNet
+  project release. They are pre-trained model weights (not executable code) and
+  are treated as data assets. scanignore is used to suppress F-Droid's binary
+  scanner for these files since they are known model weights.
+
+  The hadiths_ayahs.json asset contains Quranic verses and Hadith text which
+  are centuries-old public domain religious texts.
+
+  The Amiri font (amiri_regular.ttf) is licensed under the SIL Open Font
+  License (OFL) 1.1 — see https://github.com/aliftype/amiri
+
+  The ModelDownloadManager.kt contains code to download a RapidOCR model from
+  modelscope.cn at runtime, but this code path is dead in the fossOnnx release
+  build because the INTERNET permission is stripped via the release manifest
+  (app/src/release/AndroidManifest.xml uses tools:node="remove"). The download
+  URL is retained in source for debug-build convenience only.
+
+  No API keys, no tracking, no analytics, no advertising. All processing is
+  on-device.
+
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
 CurrentVersion: 1.0.0
