@@ -349,6 +349,12 @@ class OnboardingViewModel(
     }
 
     private suspend fun runBenchmark() {
+        // Guard against concurrent benchmark runs (e.g., user imports model while
+        // the initial benchmark from loadInitialState is still running).
+        if (_uiState.value.benchmark.isRunning) {
+            return
+        }
+
         _uiState.update { current ->
             current.copy(
                 benchmark = current.benchmark.copy(

@@ -246,7 +246,6 @@ fun HaramVeilMainShell(
     val activeTextEngine = protectionSettings.selectedTextEngine
     val activeVisualModel = resolvedModelSelectionState?.modelConfig?.visualModel ?: protectionSettings.selectedVisualModel ?: when {
         selectedVisualModel != null -> selectedVisualModel
-        supports640Model -> VisualModelOption.MODEL_640
         else -> VisualModelOption.MODEL_320
     }
     val canOffer640Model = resolvedModelSelectionState?.supports640Model ?: supports640Model
