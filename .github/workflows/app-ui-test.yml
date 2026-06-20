@@ -95,48 +95,101 @@ jobs:
             echo "=== Installed packages (haramveil) ==="
             adb shell pm list packages | grep haramveil
 
+            echo "=== Clearing logcat ==="
+            adb logcat -c
+
             echo "=== Launching HaramVeil app ==="
             adb shell am start -n com.haramveil/.MainActivity
             sleep 10
 
-            echo "=== Taking screenshot 1 (app launched) ==="
+            echo "=== Screenshot 1: App launched (onboarding Step 1) ==="
             adb shell screencap -p /sdcard/screen1.png
-            adb pull /sdcard/screen1.png screenshots/screen1_launch.png
+            adb pull /sdcard/screen1.png screenshots/01_launch.png
 
-            echo "=== Dumping UI hierarchy 1 ==="
+            echo "=== UI dump 1 ==="
             adb shell uiautomator dump /sdcard/ui1.xml
             adb pull /sdcard/ui1.xml screenshots/ui1_launch.xml
 
             echo "=== Current focused activity ==="
             adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -2
 
-            echo "=== Logcat (app errors only) ==="
-            adb logcat -d -s "AndroidRuntime:E" "System.err:W" "FATAL:E" 2>&1 | tail -30 || true
+            # Helper: find the center of a clickable node by text
+            find_and_tap() {
+              local label="$1"
+              adb shell uiautomator dump /sdcard/ui_tmp.xml >/dev/null 2>&1
+              adb pull /sdcard/ui_tmp.xml /tmp/ui_tmp.xml >/dev/null 2>&1
+              # Extract bounds of the node with matching text, then tap center
+              local bounds=$(python3 -c "
+            import xml.etree.ElementTree as ET
+            import sys
+            tree = ET.parse('/tmp/ui_tmp.xml')
+            for node in tree.iter('node'):
+                t = node.get('text','') or node.get('content-desc','')
+                if '$label' in t and node.get('clickable') == 'true':
+                    b = node.get('bounds','')
+                    # parse [x1,y1][x2,y2]
+                    import re
+                    m = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', b)
+                    if m:
+                        x = (int(m.group(1)) + int(m.group(3))) // 2
+                        y = (int(m.group(2)) + int(m.group(4))) // 2
+                        print(f'{x} {y}')
+                        sys.exit(0)
+            # fallback: find the node whose child has matching text
+            for node in tree.iter('node'):
+                for child in node:
+                    t = child.get('text','') or child.get('content-desc','')
+                    if '$label' in t and node.get('clickable') == 'true':
+                        b = node.get('bounds','')
+                        import re
+                        m = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', b)
+                        if m:
+                            x = (int(m.group(1)) + int(m.group(3))) // 2
+                            y = (int(m.group(2)) + int(m.group(4))) // 2
+                            print(f'{x} {y}')
+                            sys.exit(0)
+            sys.exit(1)
+            " 2>/dev/null)
+              if [ -n "$bounds" ]; then
+                echo ">>> Tapping '$label' at $bounds"
+                adb shell input tap $bounds
+                return 0
+              else
+                echo ">>> Could not find clickable node with text '$label'"
+                return 1
+              fi
+            }
 
-            echo "=== Press back button ==="
+            echo "=== Tapping 'Begin Setup' button (human-like) ==="
+            find_and_tap "Begin Setup"
+            sleep 5
+
+            echo "=== Screenshot 2: After tapping Begin Setup ==="
+            adb shell screencap -p /sdcard/screen2.png
+            adb pull /sdcard/screen2.png screenshots/02_after_begin_setup.png
+            adb shell uiautomator dump /sdcard/ui2.xml
+            adb pull /sdcard/ui2.xml screenshots/ui2_after_begin.xml
+
+            echo "=== Tapping 'Continue' or 'Next' if present ==="
+            find_and_tap "Continue" || find_and_tap "Next" || find_and_tap "I Understand" || find_and_tap "Agree" || echo "No continue button found"
+            sleep 4
+
+            echo "=== Screenshot 3: After continuing ==="
+            adb shell screencap -p /sdcard/screen3.png
+            adb pull /sdcard/screen3.png screenshots/03_after_continue.png
+            adb shell uiautomator dump /sdcard/ui3.xml
+            adb pull /sdcard/ui3.xml screenshots/ui3_after_continue.xml
+
+            echo "=== Pressing back ==="
             adb shell input keyevent 4
             sleep 2
 
-            echo "=== Taking screenshot 2 (after back) ==="
-            adb shell screencap -p /sdcard/screen2.png
-            adb pull /sdcard/screen2.png screenshots/screen2_back.png
+            echo "=== Screenshot 4: After back ==="
+            adb shell screencap -p /sdcard/screen4.png
+            adb pull /sdcard/screen4.png screenshots/04_after_back.png
 
-            echo "=== Relaunching app and tapping center of screen ==="
-            adb shell am start -n com.haramveil/.MainActivity
-            sleep 5
-            adb shell input tap 540 1000
-            sleep 3
-
-            echo "=== Taking screenshot 3 (after tap) ==="
-            adb shell screencap -p /sdcard/screen3.png
-            adb pull /sdcard/screen3.png screenshots/screen3_tap.png
-
-            echo "=== Dumping UI hierarchy 2 ==="
-            adb shell uiautomator dump /sdcard/ui2.xml
-            adb pull /sdcard/ui2.xml screenshots/ui2_tap.xml
-
-            echo "=== Final logcat ==="
-            adb logcat -d 2>&1 | tail -100 > screenshots/logcat.txt
+            echo "=== Final logcat (last 150 lines) ==="
+            adb logcat -d 2>&1 | tail -150 > screenshots/logcat.txt
 
             echo "=== All screenshots captured! ==="
             ls -la screenshots/
