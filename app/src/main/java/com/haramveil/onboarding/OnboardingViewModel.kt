@@ -105,8 +105,8 @@ class OnboardingViewModel(
      * The Activity registers an ActivityResultLauncher and sets this to the
      * launcher's `launch(uri)` function so we don't need an Activity ref here.
      */
+    @Volatile
     var importModelLauncherRequested: () -> Unit = {}
-        internal set
 
     init {
         loadInitialState()

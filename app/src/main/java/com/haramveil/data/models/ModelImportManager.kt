@@ -69,7 +69,7 @@ class ModelImportManager(
                 "Could not open the selected file. Try a different file manager.",
             )
         } catch (e: Exception) {
-            DebugLog.e(context, "ModelImportManager") { "Copy failed: ${e.message}" }
+            DebugLog.w(context, "ModelImportManager") { "Copy failed: ${e.message}" }
             return@withContext ImportResult.Failure(
                 "Failed to read the file: ${e.message ?: "unknown error"}",
             )

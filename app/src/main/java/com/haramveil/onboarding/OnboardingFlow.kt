@@ -267,7 +267,7 @@ fun HaramVeilRoot(
             HaramVeilMainShell(
                 selectedTextEngine = uiState.selectedTextEngine,
                 selectedVisualModel = uiState.selectedVisualModel,
-                supports640Model = uiState.benchmark.supportedModel == VisualModelOption.MODEL_640,
+                supports640Model = uiState.isModel640Installed,
                 mode1Enabled = uiState.mode1Enabled,
                 mode2Enabled = uiState.mode2Enabled,
                 mode3Enabled = uiState.mode3Enabled,
