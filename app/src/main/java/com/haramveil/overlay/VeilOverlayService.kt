@@ -26,6 +26,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -95,12 +96,12 @@ class VeilOverlayService : Service() {
         startId: Int,
     ): Int {
         if (intent?.action == ActionPreview) {
-            startForeground(NotificationId, buildForegroundNotification())
+            startForegroundCompat()
             showPreviewOverlay()
             return START_STICKY
         }
         if (intent?.action == ActionStart || intent?.action == null) {
-            startForeground(NotificationId, buildForegroundNotification())
+            startForegroundCompat()
             if (!collectorsStarted) {
                 startCollectors()
                 collectorsStarted = true
@@ -553,6 +554,23 @@ class VeilOverlayService : Service() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+
+    /**
+     * Starts the foreground service with the correct API level handling.
+     * Android 14+ (API 34+) requires an explicit foreground service type that
+     * matches the manifest declaration (`specialUse` in our case).
+     */
+    private fun startForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NotificationId,
+                buildForegroundNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            )
+        } else {
+            startForeground(NotificationId, buildForegroundNotification())
+        }
+    }
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).roundToInt()

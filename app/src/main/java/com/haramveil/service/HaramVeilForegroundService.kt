@@ -23,6 +23,7 @@ import android.content.Context
 import android.app.Service
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -77,10 +78,19 @@ class HaramVeilForegroundService : Service() {
         }
 
         intentionalStopRequested = false
-        startForeground(
-            ProtectionNotificationHelper.ForegroundNotificationId,
-            ProtectionNotificationHelper.buildForegroundNotification(applicationContext),
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Android 14+ requires explicit foreground service type matching the manifest.
+            startForeground(
+                ProtectionNotificationHelper.ForegroundNotificationId,
+                ProtectionNotificationHelper.buildForegroundNotification(applicationContext),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            )
+        } else {
+            startForeground(
+                ProtectionNotificationHelper.ForegroundNotificationId,
+                ProtectionNotificationHelper.buildForegroundNotification(applicationContext),
+            )
+        }
         bootstrapStore.markServiceRunning(true)
         bootstrapStore.updateServiceHeartbeat()
         startHeartbeatLoop()
