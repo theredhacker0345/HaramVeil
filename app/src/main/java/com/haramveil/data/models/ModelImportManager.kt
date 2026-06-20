@@ -124,12 +124,13 @@ class ModelImportManager(
 
         // Check ONNX/protobuf magic. ONNX files are protobuf streams; the first byte
         // of a ModelProto is typically 0x08 (field 1, wire type varint) followed by
-        // the IR version (commonly 0x05..0x09).
+        // the IR version. IR versions are currently 1-10 (2026), but we accept up to
+        // 0x7F to avoid rejecting future versions (protobuf varint encoding allows this).
         try {
             file.inputStream().use { stream ->
                 val first = stream.read()
                 val second = stream.read()
-                if (first == 0x08 && second in 0x01..0x0F) {
+                if (first == 0x08 && second in 0x01..0x7F) {
                     return ValidationOutcome.Valid
                 }
             }
@@ -153,7 +154,7 @@ class ModelImportManager(
     }
 
     private companion object {
-        const val MIN_ONNX_SIZE_BYTES = 1_000L
+        const val MIN_ONNX_SIZE_BYTES = 10_000L
         const val DOWNLOAD_URL_640M =
             "https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights"
     }

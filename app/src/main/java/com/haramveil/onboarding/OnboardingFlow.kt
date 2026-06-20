@@ -204,6 +204,7 @@ fun HaramVeilRoot(
                 onTextEngineSelected = viewModel::selectTextEngine,
                 onVisualModelSelected = viewModel::selectVisualModel,
                 onImportModelRequested = onImportModelRequested,
+                onOpenDownloadPage = viewModel::openDownloadPage,
                 isModel640Installed = uiState.isModel640Installed,
                 isImporting = uiState.isImportingModel,
                 importMessage = uiState.modelImportMessage,
@@ -367,6 +368,7 @@ private fun CapabilityBenchmarkScreen(
     onTextEngineSelected: (TextRecognitionEngine) -> Unit,
     onVisualModelSelected: (VisualModelOption) -> Unit,
     onImportModelRequested: () -> Unit,
+    onOpenDownloadPage: () -> Unit,
     isModel640Installed: Boolean,
     isImporting: Boolean,
     importMessage: String?,
@@ -438,6 +440,7 @@ private fun CapabilityBenchmarkScreen(
                             uiState = uiState,
                             onVisualModelSelected = onVisualModelSelected,
                             onImportModelRequested = onImportModelRequested,
+                            onOpenDownloadPage = onOpenDownloadPage,
                             isModel640Installed = isModel640Installed,
                             isImporting = isImporting,
                             importMessage = importMessage,
@@ -482,6 +485,7 @@ private fun CapabilitySummaryCard(
     uiState: OnboardingUiState,
     onVisualModelSelected: (VisualModelOption) -> Unit,
     onImportModelRequested: () -> Unit,
+    onOpenDownloadPage: () -> Unit,
     isModel640Installed: Boolean,
     isImporting: Boolean,
     importMessage: String?,
@@ -552,6 +556,9 @@ private fun CapabilitySummaryCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onOpenDownloadPage) {
+                    Text("Open Download Page")
+                }
                 OutlinedButton(onClick = onImportModelRequested, enabled = !isImporting) {
                     if (isImporting) {
                         CircularProgressIndicator(
