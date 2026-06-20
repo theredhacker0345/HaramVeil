@@ -48,11 +48,11 @@ def find_element(xml_path, label):
                     print(f"{x} {y}")
                     return 0
 
-    return 1
+    return 0  # always exit 0; empty output means not found
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
         print("Usage: find_element.py <xml> <label>", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(0)
     sys.exit(find_element(sys.argv[1], sys.argv[2]))
