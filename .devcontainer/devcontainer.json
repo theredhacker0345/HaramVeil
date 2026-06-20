@@ -1,14 +1,16 @@
 {
-  "name": "HaramVeil Android Dev",
-  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+  "name": "HaramVeil Android Dev (Ubuntu + Emulator)",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
-    "ghcr.io/devcontainers/features/android-sdk:1": {
-      "PACKAGES": "platform-tools;platforms;android-36;build-tools;36.0.0"
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21",
+      "installMaven": false,
+      "installGradle": false
     },
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "forwardPorts": [],
-  "postCreateCommand": "sudo chown -R vscode:vscode /opt/android-sdk 2>/dev/null || true && ./gradlew --version",
+  "postCreateCommand": "bash .devcontainer/setup-android-sdk.sh",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -29,6 +31,7 @@
   },
   "remoteEnv": {
     "ANDROID_HOME": "/opt/android-sdk",
-    "ANDROID_SDK_ROOT": "/opt/android-sdk"
+    "ANDROID_SDK_ROOT": "/opt/android-sdk",
+    "PATH": "/opt/android-sdk/platform-tools:/opt/android-sdk/emulator:/opt/android-sdk/cmdline-tools/latest/bin:${containerEnv:PATH}"
   }
 }
