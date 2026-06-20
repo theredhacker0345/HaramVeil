@@ -1,0 +1,154 @@
+name: App UI Test (Emulator)
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: 'Build flavor to test (fossOnnx or mlkit)'
+        required: false
+        default: 'fossOnnx'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/**'
+      - '.github/workflows/app-ui-test.yml'
+
+env:
+  GRADLE_OPTS: "-Xmx3072m -Dorg.gradle.daemon=false"
+
+jobs:
+  emulator-test:
+    name: Emulator UI Test (${{ github.event.inputs.flavor || 'fossOnnx' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Enable KVM (required for emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm
+
+      - name: Build ${{ github.event.inputs.flavor || 'fossOnnx' }} debug APK
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor || 'fossOnnx' }}
+        run: |
+          # Capitalize first letter for the Gradle task name
+          FLAVOR_CAP="$(printf '%s' "$FLAVOR" | sed 's/^./\U&/')"
+          ./gradlew :app:assemble${FLAVOR_CAP}Debug --no-daemon
+
+      - name: Find APK
+        id: apk
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor || 'fossOnnx' }}
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/${FLAVOR}/debug/ -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK found"
+            exit 1
+          fi
+          echo "path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "Found APK: $APK_PATH"
+
+      - name: Run emulator + install + interact + screenshot
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        with:
+          api-level: 29
+          arch: x86_64
+          profile: pixel_6
+          sdcard-path-or-size: 512M
+          heap-size: 512M
+          ram-size: 2048M
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            echo "=== Waiting for boot ==="
+            adb wait-for-device
+            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+            echo "=== Boot complete! ==="
+
+            echo "=== Device info ==="
+            adb shell getprop ro.product.model
+            adb shell getprop ro.build.version.release
+            adb shell wm size
+
+            echo "=== Installing APK ==="
+            adb install -r -g "$APK_PATH"
+
+            echo "=== Installed packages (haramveil) ==="
+            adb shell pm list packages | grep haramveil
+
+            echo "=== Launching HaramVeil app ==="
+            adb shell am start -n com.haramveil/.MainActivity
+            sleep 8
+
+            echo "=== Taking screenshot 1 (app launched) ==="
+            adb shell screencap -p /sdcard/screen1.png
+            adb pull /sdcard/screen1.png screenshots/screen1_launch.png
+
+            echo "=== Dumping UI hierarchy 1 ==="
+            adb shell uiautomator dump /sdcard/ui1.xml
+            adb pull /sdcard/ui1.xml screenshots/ui1_launch.xml
+
+            echo "=== Current focused activity ==="
+            adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -2
+
+            echo "=== Logcat (app errors only) ==="
+            adb logcat -d -s "AndroidRuntime:E" "System.err:W" "FATAL:E" 2>&1 | tail -30 || true
+
+            echo "=== Press back button ==="
+            adb shell input keyevent 4
+            sleep 2
+
+            echo "=== Taking screenshot 2 (after back) ==="
+            adb shell screencap -p /sdcard/screen2.png
+            adb pull /sdcard/screen2.png screenshots/screen2_back.png
+
+            echo "=== Relaunching app and tapping center of screen ==="
+            adb shell am start -n com.haramveil/.MainActivity
+            sleep 5
+            adb shell input tap 540 1000
+            sleep 3
+
+            echo "=== Taking screenshot 3 (after tap) ==="
+            adb shell screencap -p /sdcard/screen3.png
+            adb pull /sdcard/screen3.png screenshots/screen3_tap.png
+
+            echo "=== Dumping UI hierarchy 2 ==="
+            adb shell uiautomator dump /sdcard/ui2.xml
+            adb pull /sdcard/ui2.xml screenshots/ui2_tap.xml
+
+            echo "=== Final logcat ==="
+            adb logcat -d 2>&1 | tail -50 > screenshots/logcat.txt
+
+            echo "=== Done! ==="
+
+      - name: Upload screenshots and UI dumps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-ui-test-results
+          path: screenshots/
+          if-no-files-found: error
+
+      - name: Upload logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logcat
+          path: screenshots/logcat.txt
+          if-no-files-found: warn
