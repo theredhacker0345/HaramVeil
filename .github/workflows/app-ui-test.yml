@@ -45,7 +45,6 @@ jobs:
         env:
           FLAVOR: ${{ github.event.inputs.flavor || 'fossOnnx' }}
         run: |
-          # Capitalize first letter for the Gradle task name
           FLAVOR_CAP="$(printf '%s' "$FLAVOR" | sed 's/^./\U&/')"
           ./gradlew :app:assemble${FLAVOR_CAP}Debug --no-daemon
 
@@ -79,10 +78,6 @@ jobs:
             echo "=== Creating screenshots directory ==="
             mkdir -p screenshots
 
-            echo "=== Working directory ==="
-            pwd
-            ls .github/scripts/find_element.py
-
             echo "=== Waiting for boot ==="
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
@@ -96,65 +91,142 @@ jobs:
             echo "=== Installing APK ==="
             adb install -r -g "$APK_PATH"
 
-            echo "=== Installed packages (haramveil) ==="
-            adb shell pm list packages | grep haramveil
-
             echo "=== Clearing logcat ==="
             adb logcat -c
 
+            # ============================================================
+            # Helper: take a screenshot and pull it
+            # ============================================================
+            take_screenshot() {
+              local num="$1"
+              local name="$2"
+              adb shell screencap -p /sdcard/screenshot_${num}.png
+              adb pull /sdcard/screenshot_${num}.png "screenshots/${num}_${name}.png"
+              echo ">>> Captured ${num}_${name}.png"
+            }
+
+            # ============================================================
+            # Helper: dump UI hierarchy and pull it
+            # ============================================================
+            dump_ui() {
+              local num="$1"
+              adb shell uiautomator dump /sdcard/ui_${num}.xml
+              adb pull /sdcard/ui_${num}.xml "screenshots/ui${num}.xml"
+            }
+
+            # ============================================================
+            # Launch app and capture onboarding screens
+            # ============================================================
             echo "=== Launching HaramVeil app ==="
             adb shell am start -n com.haramveil/.MainActivity
             sleep 10
 
-            echo "=== Screenshot 1: App launched (onboarding Step 1) ==="
-            adb shell screencap -p /sdcard/screen1.png
-            adb pull /sdcard/screen1.png screenshots/01_launch.png
+            # Screenshot 01: Welcome / Step 1 of 6
+            take_screenshot 01 "welcome_step1"
+            dump_ui 01
 
-            echo "=== UI dump 1 ==="
-            adb shell uiautomator dump /sdcard/ui1.xml
-            adb pull /sdcard/ui1.xml screenshots/ui1_launch.xml
+            # Tap "Begin Setup" button at (540, 1921)
+            echo ">>> Tapping 'Begin Setup' at (540, 1921)"
+            adb shell input tap 540 1921
+            sleep 6
 
-            echo "=== Current focused activity ==="
-            adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -2
+            # Screenshot 02: Step 2 of 6 — Capability/Benchmark
+            take_screenshot 02 "capability_step2"
+            dump_ui 02
 
-            echo "=== Tapping 'Begin Setup' button (human-like) ==="
-            adb shell uiautomator dump /sdcard/ui_tmp.xml
-            adb pull /sdcard/ui_tmp.xml /tmp/ui_tmp.xml
-            cp /tmp/ui_tmp.xml screenshots/ui_tmp_begingsetup.xml
-            echo ">>> Tapping 'Begin Setup' at (540, 1921) — from UI dump bounds [53,1858][1027,1984]"
+            # Tap "Confirm Choices" button (bottom of screen, same position)
+            echo ">>> Tapping 'Confirm Choices' at (540, 1921)"
             adb shell input tap 540 1921
             sleep 5
 
-            echo "=== Screenshot 2: After tapping Begin Setup ==="
-            adb shell screencap -p /sdcard/screen2.png
-            adb pull /sdcard/screen2.png screenshots/02_after_begin_setup.png
-            adb shell uiautomator dump /sdcard/ui2.xml
-            adb pull /sdcard/ui2.xml screenshots/ui2_after_begin.xml
+            # Screenshot 03: Step 3 of 6 — App Selection
+            take_screenshot 03 "app_selection_step3"
+            dump_ui 03
 
-            echo "=== Tapping 'Continue' or 'Next' if present ==="
-            adb shell uiautomator dump /sdcard/ui_tmp2.xml
-            adb pull /sdcard/ui_tmp2.xml /tmp/ui_tmp2.xml
-            cp /tmp/ui_tmp2.xml screenshots/ui_tmp2_continue.xml
-            echo ">>> Tapping center-bottom for continue (540, 1921)"
-            adb shell input tap 540 1921
-            sleep 4
+            # Tap "Continue" / "Confirm" at bottom
+            echo ">>> Tapping bottom button at (540, 2150)"
+            adb shell input tap 540 2150
+            sleep 5
 
-            echo "=== Screenshot 3: After continuing ==="
-            adb shell screencap -p /sdcard/screen3.png
-            adb pull /sdcard/screen3.png screenshots/03_after_continue.png
-            adb shell uiautomator dump /sdcard/ui3.xml
-            adb pull /sdcard/ui3.xml screenshots/ui3_after_continue.xml
+            # Screenshot 04: Step 4 (could be PIN setup or security)
+            take_screenshot 04 "security_step4"
+            dump_ui 04
 
+            # Try tapping bottom button again
+            echo ">>> Tapping bottom button at (540, 2150)"
+            adb shell input tap 540 2150
+            sleep 5
+
+            # Screenshot 05: Step 5 (could be permissions review)
+            take_screenshot 05 "permissions_step5"
+            dump_ui 05
+
+            # Try tapping bottom button again
+            echo ">>> Tapping bottom button at (540, 2150)"
+            adb shell input tap 540 2150
+            sleep 5
+
+            # Screenshot 06: Step 6 (final onboarding step or dashboard)
+            take_screenshot 06 "final_step6"
+            dump_ui 06
+
+            # ============================================================
+            # Try to navigate to Dashboard, Stats, Settings
+            # ============================================================
+
+            # Press back to see if we get to dashboard
             echo "=== Pressing back ==="
             adb shell input keyevent 4
+            sleep 3
+
+            take_screenshot 07 "after_back"
+            dump_ui 07
+
+            # Try relaunching the app (might go to dashboard if onboarding was completed)
+            echo "=== Relaunching app ==="
+            adb shell am start -n com.haramveil/.MainActivity
+            sleep 8
+
+            take_screenshot 08 "relaunch"
+            dump_ui 08
+
+            # Try scrolling down to see more of the screen
+            echo "=== Scrolling down ==="
+            adb shell input swipe 540 1500 540 500 300
             sleep 2
 
-            echo "=== Screenshot 4: After back ==="
-            adb shell screencap -p /sdcard/screen4.png
-            adb pull /sdcard/screen4.png screenshots/04_after_back.png
+            take_screenshot 09 "scrolled_down"
+            dump_ui 09
 
-            echo "=== Final logcat (last 150 lines) ==="
-            adb logcat -d 2>&1 | tail -150 > screenshots/logcat.txt
+            # Try scrolling back up
+            echo "=== Scrolling up ==="
+            adb shell input swipe 540 500 540 1500 300
+            sleep 2
+
+            take_screenshot 10 "scrolled_up"
+            dump_ui 10
+
+            # Try tapping top-left area (might be navigation menu or back)
+            echo "=== Tapping top-left (540, 150) ==="
+            adb shell input tap 540 150
+            sleep 3
+
+            take_screenshot 11 "top_tap"
+            dump_ui 11
+
+            # Try tapping different navigation areas
+            echo "=== Tapping bottom-center (540, 2300) — possible nav bar ==="
+            adb shell input tap 540 2300
+            sleep 3
+
+            take_screenshot 12 "nav_bar_tap"
+            dump_ui 12
+
+            # ============================================================
+            # Final screenshot + logcat
+            # ============================================================
+            echo "=== Final logcat (last 200 lines) ==="
+            adb logcat -d 2>&1 | tail -200 > screenshots/logcat.txt
 
             echo "=== All screenshots captured! ==="
             ls -la screenshots/
