@@ -70,7 +70,7 @@ class Mode3Processor(
     private var thermalRateLimitOverrideMs: Long? = null
 
     fun start() {
-        if (processorJob != null) {
+        if (processorJob?.isActive == true) {
             return
         }
 
@@ -82,7 +82,13 @@ class Mode3Processor(
             DetectionBus.events
                 .filterIsInstance<DetectionEvent.Mode1Triggered>()
                 .collect { event ->
-                    processTrigger(event.trigger)
+                    runCatching {
+                        processTrigger(event.trigger)
+                    }.onFailure { error ->
+                        DebugLog.w(applicationContext, LogTag) {
+                            "Mode 3 processing failed for ${event.trigger.scanResult.packageName}: ${error.message}"
+                        }
+                    }
                 }
         }
     }

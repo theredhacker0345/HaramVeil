@@ -38,17 +38,26 @@ class StatsRepository private constructor(
 ) {
     private val applicationContext = context.applicationContext
     private val packageManager = applicationContext.packageManager
-    private val dao = HaramVeilDatabase.getInstance(applicationContext).blockEventDao()
+
+    // The database requires a PIN hash to open (SQLCipher). If no PIN is set yet
+    // (e.g., user cleared app data but accessibility service is still enabled),
+    // we gracefully degrade to a no-op mode instead of crashing.
+    private val dao: BlockEventDao? = try {
+        HaramVeilDatabase.getInstance(applicationContext).blockEventDao()
+    } catch (e: IllegalStateException) {
+        null
+    }
+
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val hasLoadedSnapshotMutable = MutableStateFlow(false)
 
-    val allEvents: StateFlow<List<BlockEvent>> = dao.getAll()
+    val allEvents: StateFlow<List<BlockEvent>> = (dao?.getAll() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
         .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
 
-    val todayEvents: StateFlow<List<BlockEvent>> = dao.getToday()
+    val todayEvents: StateFlow<List<BlockEvent>> = (dao?.getToday() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
         .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
 
-    val thisWeekEvents: StateFlow<List<BlockEvent>> = dao.getThisWeek()
+    val thisWeekEvents: StateFlow<List<BlockEvent>> = (dao?.getThisWeek() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
         .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
 
     val allTimeCount: StateFlow<Int> = allEvents
@@ -63,17 +72,21 @@ class StatsRepository private constructor(
         .map { events -> events.size }
         .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), 0)
 
-    val mostBlockedAppName: StateFlow<String?> = dao.getMostBlockedApp()
+    val mostBlockedAppName: StateFlow<String?> = (dao?.getMostBlockedApp() ?: kotlinx.coroutines.flow.flowOf(null))
         .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), null)
 
-    val mostBlockedAppRecord: StateFlow<MostBlockedAppRecord?> = dao.getMostBlockedAppRecord()
+    val mostBlockedAppRecord: StateFlow<MostBlockedAppRecord?> = (dao?.getMostBlockedAppRecord() ?: kotlinx.coroutines.flow.flowOf(null))
         .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), null)
 
     val hasLoadedSnapshot: StateFlow<Boolean> = hasLoadedSnapshotMutable.asStateFlow()
 
     init {
-        repositoryScope.launch {
-            dao.getAll().first()
+        if (dao != null) {
+            repositoryScope.launch {
+                dao.getAll().first()
+                hasLoadedSnapshotMutable.value = true
+            }
+        } else {
             hasLoadedSnapshotMutable.value = true
         }
     }
@@ -85,7 +98,8 @@ class StatsRepository private constructor(
         lockdownMs: Long,
         appName: String? = null,
     ) {
-        dao.insertEvent(
+        val activeDao = dao ?: return
+        activeDao.insertEvent(
             BlockEvent(
                 packageName = packageName,
                 appName = resolveAppName(packageName, appName),
@@ -99,19 +113,22 @@ class StatsRepository private constructor(
 
     fun countByMode(
         mode: Int,
-    ): StateFlow<Int> =
-        dao.getCountByMode(mode.coerceIn(minimumValue = 1, maximumValue = 3))
-            .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), 0)
+    ): StateFlow<Int> {
+        val flow = dao?.getCountByMode(mode.coerceIn(minimumValue = 1, maximumValue = 3))
+            ?: kotlinx.coroutines.flow.flowOf(0)
+        return flow.stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), 0)
+    }
 
     suspend fun clearHistory() {
-        dao.deleteAll()
+        dao?.deleteAll()
     }
 
     suspend fun cleanupEventsOlderThan(
         retentionDays: Int,
     ): Int {
+        val activeDao = dao ?: return 0
         val cutoffTimestamp = System.currentTimeMillis() - Duration.ofDays(retentionDays.toLong()).toMillis()
-        return dao.deleteOlderThan(cutoffTimestamp)
+        return activeDao.deleteOlderThan(cutoffTimestamp)
     }
 
     private fun resolveAppName(

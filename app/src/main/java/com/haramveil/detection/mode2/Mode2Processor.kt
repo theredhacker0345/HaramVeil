@@ -58,7 +58,7 @@ class Mode2Processor(
     private var processorJob: Job? = null
 
     fun start() {
-        if (processorJob != null) {
+        if (processorJob?.isActive == true) {
             return
         }
 
@@ -66,7 +66,13 @@ class Mode2Processor(
             DetectionBus.events
                 .filterIsInstance<DetectionEvent.Mode1Triggered>()
                 .collectLatest { event ->
-                    processTrigger(event.trigger)
+                    runCatching {
+                        processTrigger(event.trigger)
+                    }.onFailure { error ->
+                        com.haramveil.utils.DebugLog.w(applicationContext, "HaramVeilMode2") {
+                            "Mode 2 processing failed for ${event.trigger.scanResult.packageName}: ${error.message}"
+                        }
+                    }
                 }
         }
     }

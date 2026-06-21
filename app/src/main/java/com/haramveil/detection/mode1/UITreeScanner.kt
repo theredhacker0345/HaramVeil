@@ -360,7 +360,7 @@ class UITreeScanner {
             "com.dolphin.mobile",
             "com.maxthon.browser",
             "com.yandex.browser",
-            "com.puffinBrowser",
+            "com.puffinbrowser",
             "mobi.mgeekapp.tunny",
             "com.kiwibrowser.browser",
             "com.lynx.lynxbrowser",
