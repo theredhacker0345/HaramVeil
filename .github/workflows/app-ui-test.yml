@@ -85,8 +85,11 @@ jobs:
             sleep 10
             adb shell screencap -p /sdcard/s1.png && adb pull /sdcard/s1.png screenshots/01_welcome_step1.png
             adb shell input tap 540 1921
-            sleep 6
-            adb shell screencap -p /sdcard/s2.png && adb pull /sdcard/s2.png screenshots/02_capability_step2.png
+            sleep 5
+            adb shell screencap -p /sdcard/s2.png && adb pull /sdcard/s2.png screenshots/02_benchmark_running.png
+            echo "Waiting 60s for benchmark to complete..."
+            sleep 60
+            adb shell screencap -p /sdcard/s2b.png && adb pull /sdcard/s2b.png screenshots/02b_benchmark_done.png
             adb shell input tap 540 1921
             sleep 5
             adb shell screencap -p /sdcard/s3.png && adb pull /sdcard/s3.png screenshots/03_app_selection_step3.png
