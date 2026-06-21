@@ -30,3 +30,5 @@ NUL
 stitch/
 manifests/
 UI_MOCKUPS.txt
+.idea/
+.agents_tmp/

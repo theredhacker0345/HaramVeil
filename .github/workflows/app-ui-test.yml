@@ -34,14 +34,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Enable KVM (required for emulator)
+      - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          ls -la /dev/kvm
 
-      - name: Build ${{ github.event.inputs.flavor || 'fossOnnx' }} debug APK
+      - name: Build debug APK
         env:
           FLAVOR: ${{ github.event.inputs.flavor || 'fossOnnx' }}
         run: |
@@ -54,14 +53,10 @@ jobs:
           FLAVOR: ${{ github.event.inputs.flavor || 'fossOnnx' }}
         run: |
           APK_PATH=$(find app/build/outputs/apk/${FLAVOR}/debug/ -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            echo "::error::No APK found"
-            exit 1
-          fi
+          [ -z "$APK_PATH" ] && { echo "::error::No APK found"; exit 1; }
           echo "path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "Found APK: $APK_PATH"
 
-      - name: Run emulator + install + interact + screenshot
+      - name: Run emulator and capture screenshots
         uses: reactivecircus/android-emulator-runner@v2
         env:
           APK_PATH: ${{ steps.apk.outputs.path }}
@@ -81,60 +76,62 @@ jobs:
             echo "Boot complete"
             adb install -r -g "$APK_PATH"
             adb logcat -c
+            echo "=== Launching app ==="
             adb shell am start -n com.haramveil/.MainActivity
             sleep 10
-            adb shell screencap -p /sdcard/s1.png && adb pull /sdcard/s1.png screenshots/01_welcome_step1.png
+            echo "=== Screenshot 1: Welcome (Step 1) ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/1_welcome.png
+            echo "=== Tap Begin Setup ==="
             adb shell input tap 540 1921
             sleep 5
-            adb shell screencap -p /sdcard/s2.png && adb pull /sdcard/s2.png screenshots/02_benchmark_running.png
-            echo "Waiting 60s for benchmark to complete..."
-            sleep 60
-            adb shell screencap -p /sdcard/s2b.png && adb pull /sdcard/s2b.png screenshots/02b_benchmark_done.png
+            echo "=== Screenshot 2: Benchmark running (Step 2) ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/2_benchmark_running.png
+            echo "=== Wait 90s for benchmark to finish ==="
+            sleep 90
+            echo "=== Screenshot 3: Benchmark done (Step 2) ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/3_benchmark_done.png
+            echo "=== Tap Confirm Choices ==="
             adb shell input tap 540 1921
             sleep 5
-            adb shell screencap -p /sdcard/s3.png && adb pull /sdcard/s3.png screenshots/03_app_selection_step3.png
+            echo "=== Screenshot 4: App selection (Step 3) ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/4_app_selection.png
+            echo "=== Tap Continue (bottom center) ==="
             adb shell input tap 540 2150
             sleep 5
-            adb shell screencap -p /sdcard/s4.png && adb pull /sdcard/s4.png screenshots/04_security_step4.png
+            echo "=== Screenshot 5: Next step ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/5_next_step.png
+            echo "=== Tap Continue ==="
             adb shell input tap 540 2150
             sleep 5
-            adb shell screencap -p /sdcard/s5.png && adb pull /sdcard/s5.png screenshots/05_permissions_step5.png
+            echo "=== Screenshot 6: Next step ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/6_next_step.png
+            echo "=== Tap Continue ==="
             adb shell input tap 540 2150
             sleep 5
-            adb shell screencap -p /sdcard/s6.png && adb pull /sdcard/s6.png screenshots/06_final_step6.png
+            echo "=== Screenshot 7: Next step ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/7_next_step.png
+            echo "=== Tap Continue ==="
+            adb shell input tap 540 2150
+            sleep 5
+            echo "=== Screenshot 8: Next step or dashboard ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/8_dashboard_or_final.png
+            echo "=== Scroll down ==="
+            adb shell input swipe 540 1800 540 400 500
+            sleep 2
+            echo "=== Screenshot 9: Scrolled ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/9_scrolled.png
+            echo "=== Press back ==="
             adb shell input keyevent 4
             sleep 3
-            adb shell screencap -p /sdcard/s7.png && adb pull /sdcard/s7.png screenshots/07_after_back.png
-            adb shell am start -n com.haramveil/.MainActivity
-            sleep 8
-            adb shell screencap -p /sdcard/s8.png && adb pull /sdcard/s8.png screenshots/08_relaunch.png
-            adb shell input swipe 540 1500 540 500 300
-            sleep 2
-            adb shell screencap -p /sdcard/s9.png && adb pull /sdcard/s9.png screenshots/09_scrolled_down.png
-            adb shell input swipe 540 500 540 1500 300
-            sleep 2
-            adb shell screencap -p /sdcard/s10.png && adb pull /sdcard/s10.png screenshots/10_scrolled_up.png
-            adb shell input tap 540 150
-            sleep 3
-            adb shell screencap -p /sdcard/s11.png && adb pull /sdcard/s11.png screenshots/11_top_tap.png
-            adb shell input tap 540 2300
-            sleep 3
-            adb shell screencap -p /sdcard/s12.png && adb pull /sdcard/s12.png screenshots/12_nav_bar_tap.png
+            echo "=== Screenshot 10: After back ==="
+            adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screenshots/10_after_back.png
             adb logcat -d 2>&1 | tail -200 > screenshots/logcat.txt
             ls -la screenshots/
 
-      - name: Upload screenshots and UI dumps
+      - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-ui-test-results
           path: screenshots/
           if-no-files-found: error
-
-      - name: Upload logcat
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logcat
-          path: screenshots/logcat.txt
-          if-no-files-found: warn
