@@ -237,6 +237,9 @@ class VeilOverlayService : Service() {
                 // WindowManager.BadTokenException occurs if the user revoked the
                 // SYSTEM_ALERT_WINDOW permission after onboarding. Clean up and
                 // post a notification prompting the user to re-grant it.
+                com.haramveil.utils.DebugLog.w(applicationContext, "VeilOverlay") {
+                    "addView failed (overlay permission may be revoked): ${e.message}"
+                }
                 overlayViewHolder = null
                 activeRequest = null
                 ProtectionNotificationHelper.showAccessibilityReenablePrompt(this)
