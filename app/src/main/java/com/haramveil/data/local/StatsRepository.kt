@@ -42,11 +42,9 @@ class StatsRepository private constructor(
     // The database requires a PIN hash to open (SQLCipher). If no PIN is set yet
     // (e.g., user cleared app data but accessibility service is still enabled),
     // we gracefully degrade to a no-op mode instead of crashing.
-    private val dao: BlockEventDao? = try {
+    private val dao: BlockEventDao? = runCatching {
         HaramVeilDatabase.getInstance(applicationContext).blockEventDao()
-    } catch (e: IllegalStateException) {
-        null
-    }
+    }.getOrElse { null }
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val hasLoadedSnapshotMutable = MutableStateFlow(false)
