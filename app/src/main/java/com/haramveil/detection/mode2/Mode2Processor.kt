@@ -47,6 +47,7 @@ class Mode2Processor(
     private val settingsProvider: () -> ProtectionSettings,
     private val dispatcherProvider: DispatcherProvider = DispatcherProvider(),
 ) {
+    private val applicationContext = context.applicationContext
     private val processorScope = CoroutineScope(SupervisorJob() + dispatcherProvider.default)
     private val screenCaptureManager = ScreenCaptureManager(dispatcherProvider)
     private val statsRepository = StatsRepository.getInstance(context)

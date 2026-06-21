@@ -45,6 +45,7 @@ import androidx.core.content.res.ResourcesCompat
 import com.haramveil.R
 import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.security.AppLockdownManager
+import com.haramveil.service.ProtectionNotificationHelper
 import com.haramveil.utils.DetectionBus
 import com.haramveil.utils.DetectionEvent
 import com.haramveil.utils.DispatcherProvider
