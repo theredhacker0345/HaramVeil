@@ -231,7 +231,17 @@ class VeilOverlayService : Service() {
             bindPassage(createdViewHolder, passage)
             bindSubtitle(createdViewHolder, request)
             createdViewHolder.root.alpha = 0f
-            windowManager.addView(createdViewHolder.root, overlayLayoutParams())
+            try {
+                windowManager.addView(createdViewHolder.root, overlayLayoutParams())
+            } catch (e: Exception) {
+                // WindowManager.BadTokenException occurs if the user revoked the
+                // SYSTEM_ALERT_WINDOW permission after onboarding. Clean up and
+                // post a notification prompting the user to re-grant it.
+                overlayViewHolder = null
+                activeRequest = null
+                ProtectionNotificationHelper.showAccessibilityReenablePrompt(this)
+                return
+            }
             createdViewHolder.root.animate()
                 .alpha(1f)
                 .setDuration(FadeInDurationMs)
