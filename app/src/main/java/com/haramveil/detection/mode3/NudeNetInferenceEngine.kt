@@ -284,6 +284,18 @@ class NudeNetInferenceEngine(
         rawOutput: Any?,
         labels: List<String>,
     ): Map<String, Float> {
+        // The bundled/supported models (e.g. 320n.onnx) are Ultralytics YOLOv8 *detection*
+        // exports, NOT flat classifiers. Their output is [1, C, N] where
+        // C = 4 (box) + 1 (objectness) + K (class logits). We decode the per-anchor
+        // detections and report the maximum class probability (scaled by objectness) for
+        // each class. A naive classification-style parse of this tensor returns garbage
+        // (it reads box coordinates as if they were class scores) and never blocks.
+        val decoded = decodeYoloOutput(rawOutput, labels)
+        if (decoded.isNotEmpty()) {
+            return decoded
+        }
+
+        // Fallback: models that genuinely emit a flat classification vector.
         return when (rawOutput) {
             is FloatArray -> mapScoreVector(rawOutput, labels)
             is Array<*> -> parseNestedOutput(rawOutput, labels)
@@ -299,6 +311,115 @@ class NudeNetInferenceEngine(
         }
     }
 
+    /**
+     * Decodes an Ultralytics YOLOv8 detection tensor into `className -> maxScore`.
+     *
+     * Accepts the flattened [FloatArray] of length `S * C * N` that OnnxRuntime Java
+     * returns from [OnnxTensor.getValue] for a 3D float tensor, where
+     * `C = 4 + 1 + K` (box, objectness, K class logits) and `N` is the number of
+     * anchor predictions. Only channels beyond the first 5 are treated as class logits, so
+     * this also works for models that append extra outputs (e.g. 22 = 4 + 1 + 17).
+     */
+    private fun decodeYoloOutput(
+        rawOutput: Any?,
+        labels: List<String>,
+    ): Map<String, Float> {
+        val layout = extractYoloLayout(rawOutput) ?: return emptyMap()
+        val (channels, anchors, flat) = layout
+        // Class logits occupy channels 5..(channels-1). The runtime channel count is
+        // authoritative (driven by the model) and may differ from the label list size
+        // when the model metadata lists a stale/extra class name.
+        val classCount = (channels - 5).coerceAtLeast(0)
+        if (classCount <= 0 || anchors <= 0) {
+            return emptyMap()
+        }
+
+        // Surface a model/label mismatch: if the label list size disagrees with the
+        // tensor-derived class count, detections beyond the label range would be dropped
+        // (and never matched as unsafe), so log it for debugging.
+        if (classCount != labels.size) {
+            DebugLog.w(context, "HaramVeilInference") {
+                "Model class count ($classCount) differs from label list size (${labels.size}); " +
+                    "extra classes will be reported as UNSAFE_CLASS_* and not matched as unsafe."
+            }
+        }
+
+        val classScores = mutableMapOf<String, Float>()
+        for (anchor in 0 until anchors) {
+            val base = anchor * channels
+            // Objectness is the 5th channel (index 4).
+            val objectness = normalizeScore(flat[base + 4])
+            if (objectness <= ObjectnessGate) {
+                continue
+            }
+            for (classIndex in 0 until classCount) {
+                val label = labels.getOrNull(classIndex) ?: "UNSAFE_CLASS_${classIndex + 1}"
+                val classProb = normalizeScore(flat[base + 5 + classIndex])
+                val score = classProb * objectness
+                val current = classScores[label] ?: 0f
+                if (score > current) {
+                    classScores[label] = score
+                }
+            }
+        }
+        return classScores
+    }
+
+    /**
+     * Normalizes a YOLO output tensor into `(channels, anchors, flatFloatArray)` or returns
+     * `null` when the shape is not a recognizable detection layout.
+     *
+     * For an Ultralytics YOLOv8 detection head the channel count is `5 + K`
+     * (4 box coordinates + 1 objectness + K class logits). We recover it from the
+     * flattened tensor length by trying class counts in a sane range (1..64) and
+     * picking the one whose `5 + K` divides the total element count. This avoids
+     * relying on the (sometimes stale) class count in the model metadata.
+     */
+    private fun extractYoloLayout(
+        rawOutput: Any?,
+    ): Triple<Int, Int, FloatArray>? {
+        // OnnxRuntime Java returns a 3D float tensor as a flattened FloatArray
+        // (S * C * N elements). We only handle that representation here.
+        val flat = (rawOutput as? FloatArray) ?: return null
+        if (flat.isEmpty()) {
+            return null
+        }
+
+        // total = channels * anchors, with channels = 5 + K (K = class count).
+        //
+        // Several values of K can divide `total` (e.g. for the 320n model total=46200 is
+        // divisible by 6 as well as 22), so we must not return on the first match. For a
+        // YOLO head the number of anchors is far larger than the channel count, so we pick
+        // the split with the MOST anchors (i.e. the SMALLEST channel count >= 5). This
+        // unambiguously resolves to 22 channels / 2100 anchors for the shipped model.
+        val total = flat.size
+        var best: Triple<Int, Int, FloatArray>? = null
+        for (classCount in 1..64) {
+            val channels = 5 + classCount
+            if (total % channels != 0) continue
+            val anchors = total / channels
+            if (anchors <= 0) continue
+            // Disambiguate from non-YOLO divisors (e.g. total=46200 is also divisible by 6,
+            // which would yield channels=6/anchors=7700). Ultralytics YOLOv8 uses three
+            // detection scales at strides 8/16/32, so the anchor count is always
+            // 21 * k^2 ( = (4k)^2 + (2k)^2 + k^2 ) for some integer k. Require that.
+            if (!isYoloAnchorCount(anchors)) continue
+            best = Triple(channels, anchors, flat)
+            break
+        }
+        return best
+    }
+
+    /**
+     * True when [anchors] matches the Ultralytics YOLOv8 anchor-grid layout:
+     * (H/8)^2 + (H/16)^2 + (H/32)^2 = 16k^2 + 4k^2 + k^2 = 21 * k^2.
+     */
+    private fun isYoloAnchorCount(anchors: Int): Boolean {
+        if (anchors <= 0 || anchors % 21 != 0) return false
+        val kSquared = anchors / 21
+        val k = kSquared.toDouble().let { Math.sqrt(it) }
+        return k >= 1.0 && k == k.toInt().toDouble()
+    }
     private fun parseNestedOutput(
         rawOutput: Array<*>,
         labels: List<String>,
@@ -441,7 +562,8 @@ class NudeNetInferenceEngine(
     }
 
     private companion object {
-        const val DefaultUnsafeThreshold = 0.45f
+        const val DefaultUnsafeThreshold = 0.35f
+        const val ObjectnessGate = 0.25f
 
         val UnsafeClassMarkers = setOf(
             "unsafe",
