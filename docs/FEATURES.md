@@ -78,6 +78,30 @@ than the blocked material.
   lockdown duration.
 - Enable **Strict Mode** for tighter pacing.
 
+## Why not just a DNS blocker?
+
+DNS/VPN blockers filter by domain at the network layer. They are a great first
+line of defense, but they:
+
+- **Miss embedded media** — an explicit image or video hosted on an allowed
+  domain still loads.
+- **Miss in-app browsers** — many apps render web content internally.
+- **Are easy to switch off** — a single toggle disables them.
+
+HaramVeil operates at the **screen layer**, analyzing what is actually displayed.
+It catches content network blockers miss, and its PIN/device-admin safeguards
+make it far harder to disable on impulse. The two are complementary: use a DNS
+blocker (NextDNS, AdGuard) to narrow the field, and HaramVeil as the last line
+of defense.
+
+| Capability | DNS blocker | HaramVeil |
+|-----------|------------|-----------|
+| Blocks by domain | ✅ | ✅ (plus keywords) |
+| Sees embedded images/video | ❌ | ✅ (OCR + visual AI) |
+| On-device content analysis | ❌ | ✅ |
+| Hard to disable impulsively | ❌ | ✅ (PIN + device admin) |
+| Works fully offline | Often | ✅ (FOSS build) |
+
 ## Privacy
 
 - **No internet.** The FOSS build has no `INTERNET` permission.

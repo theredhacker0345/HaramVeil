@@ -12,7 +12,7 @@
 
 ---
 
-> 📚 **Full documentation** lives in the [`docs/`](docs/) folder: [Architecture](docs/ARCHITECTURE.md), [Detection Pipeline](docs/DETECTION.md), [Security & Privacy](docs/SECURITY.md), [Development](docs/DEVELOPMENT.md), and [Features](docs/FEATURES.md). A companion site is published to GitHub Pages.
+> 📚 **Full documentation** lives in the [`docs/`](docs/) folder: [Architecture](docs/ARCHITECTURE.md), [Detection Pipeline](docs/DETECTION.md), [Security & Privacy](docs/SECURITY.md), [Development](docs/DEVELOPMENT.md), [Features](docs/FEATURES.md), and [FAQ](docs/FAQ.md). A companion site is published to GitHub Pages.
 
 ## 🌟 Vision & Purpose
 

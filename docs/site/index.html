@@ -12,26 +12,30 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
 </head>
 <body>
+<div class="bg-glow"></div>
 
-<!-- NAV -->
 <nav class="nav">
   <div class="nav-inner">
-    <div class="brand">
-      <div class="logo">🛡️</div>
-      <span>Haram<b>Veil</b></span>
-    </div>
+    <div class="brand"><div class="logo">🛡️</div><span>Haram<b>Veil</b></span></div>
     <div class="nav-links">
       <a href="#features">Features</a>
+      <a href="#how">How it works</a>
       <a href="#detection">Detection</a>
+      <a href="#compare">Vs blockers</a>
       <a href="#security">Security</a>
-      <a href="#flavors">Builds</a>
+      <a href="#faq">FAQ</a>
       <a href="#docs">Docs</a>
-      <a href="https://github.com/darkmaster0345/HaramVeil" target="_blank" rel="noopener">GitHub</a>
     </div>
+    <a class="nav-cta" href="https://github.com/darkmaster0345/HaramVeil/releases" target="_blank" rel="noopener">Download</a>
+    <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+  </div>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="#features">Features</a><a href="#how">How it works</a><a href="#detection">Detection</a>
+    <a href="#compare">Vs blockers</a><a href="#security">Security</a><a href="#faq">FAQ</a><a href="#docs">Docs</a>
+    <a href="https://github.com/darkmaster0345/HaramVeil/releases" target="_blank" rel="noopener">Download</a>
   </div>
 </nav>
 
-<!-- HERO -->
 <header class="hero">
   <div class="wrap">
     <div>
@@ -43,7 +47,7 @@
         layered detection. Nothing leaves your phone.
       </p>
       <div class="ayah">
-        “Tell the believing men to lower their gaze and guard their private parts. That is purer for them.”
+        "Tell the believing men to lower their gaze and guard their private parts. That is purer for them."
         <small>— Qur'an 24:30</small>
       </div>
       <div class="cta-row">
@@ -51,27 +55,27 @@
         <a class="btn btn-ghost" href="#docs">📚 Read the Docs</a>
       </div>
       <div class="badges">
-        <span class="badge">Android 10+</span>
-        <span class="badge">Kotlin 100%</span>
-        <span class="badge">Jetpack Compose</span>
-        <span class="badge">GPL-3.0</span>
-        <span class="badge">F-Droid Ready</span>
-        <span class="badge">No INTERNET</span>
+        <span class="badge">Android 10+</span><span class="badge">Kotlin 100%</span>
+        <span class="badge">Jetpack Compose</span><span class="badge">GPL-3.0</span>
+        <span class="badge">F-Droid Ready</span><span class="badge">No INTERNET</span>
       </div>
     </div>
 
-    <div class="hero-card reveal">
-      <div class="shield">🛡️</div>
-      <div class="status-pill"><span><span class="dot"></span> Protection</span><span class="ok">Active</span></div>
-      <div class="status-pill"><span>Accessibility Service</span><span class="ok">Connected</span></div>
-      <div class="status-pill"><span>Visual AI (Mode 3)</span><span class="ok">On-device</span></div>
-      <div class="status-pill"><span>Blocks today</span><span class="ok">12</span></div>
-      <div class="bars"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="phone reveal">
+      <div class="screen">
+        <div class="big-icon">🛡️</div>
+        <h4>HaramVeil</h4>
+        <div class="sub">Protection Active</div>
+        <div class="pill"><span><span class="dot"></span> Accessibility</span><span class="ok">Connected</span></div>
+        <div class="pill"><span>Visual AI (Mode 3)</span><span class="ok">On-device</span></div>
+        <div class="pill"><span>Blocks today</span><span class="ok">12</span></div>
+        <div class="pill"><span>Lockdowns</span><span class="ok">2 active</span></div>
+        <div class="eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      </div>
     </div>
   </div>
 </header>
 
-<!-- FEATURES -->
 <section id="features">
   <div class="wrap">
     <div class="section-head reveal">
@@ -81,67 +85,52 @@
          actually on your screen — and veils it before you see it.</p>
     </div>
     <div class="grid grid-3">
-      <div class="card reveal"><div class="ico">🔍</div><h3>Layered Detection</h3>
-        <p>Three independent modes — UI-tree scanning, OCR, and visual AI — cooperate so a miss in one is caught by another.</p></div>
-      <div class="card reveal"><div class="ico">🧠</div><h3>On-Device AI</h3>
-        <p>NudeNet deep-learning models run locally via ONNX Runtime. Your screen data never leaves the device.</p></div>
-      <div class="card reveal"><div class="ico">🚫</div><h3>Anti-Bypass</h3>
-        <p>bcrypt PIN, device-admin uninstall lock, lockdown mode, and a self-closing Safe Window keep protection honest.</p></div>
-      <div class="card reveal"><div class="ico">🔒</div><h3>Encrypted Stats</h3>
-        <p>Every block is logged in an SQLCipher database keyed to your PIN hash. No account, no telemetry.</p></div>
-      <div class="card reveal"><div class="ico">🔋</div><h3>Battery-Aware</h3>
-        <p>Throttling, frame hashing, and a thermal guard keep scanning efficient. A speed/accuracy slider is built in.</p></div>
-      <div class="card reveal"><div class="ico">♻️</div><h3>Always Recovering</h3>
-        <p>Sticky service, boot receiver, alarm + WorkManager health checks, and Samsung keep-alive keep it running.</p></div>
+      <div class="card reveal"><div class="ico">🔍</div><h3>Layered Detection</h3><p>Three independent modes — UI-tree scanning, OCR, and visual AI — cooperate so a miss in one is caught by another.</p></div>
+      <div class="card reveal"><div class="ico">🧠</div><h3>On-Device AI</h3><p>NudeNet deep-learning models run locally via ONNX Runtime. Your screen data never leaves the device.</p></div>
+      <div class="card reveal"><div class="ico">🚫</div><h3>Anti-Bypass</h3><p>bcrypt PIN, device-admin uninstall lock, lockdown mode, and a self-closing Safe Window keep protection honest.</p></div>
+      <div class="card reveal"><div class="ico">🔒</div><h3>Encrypted Stats</h3><p>Every block is logged in an SQLCipher database keyed to your PIN hash. No account, no telemetry.</p></div>
+      <div class="card reveal"><div class="ico">🔋</div><h3>Battery-Aware</h3><p>Throttling, frame hashing, and a thermal guard keep scanning efficient. A speed/accuracy slider is built in.</p></div>
+      <div class="card reveal"><div class="ico">♻️</div><h3>Always Recovering</h3><p>Sticky service, boot receiver, alarm + WorkManager health checks, and Samsung keep-alive keep it running.</p></div>
     </div>
   </div>
 </section>
 
-<!-- DETECTION PIPELINE -->
-<section id="detection" style="background:linear-gradient(180deg,var(--bg-soft),transparent);">
+<section id="how" style="background:linear-gradient(180deg,var(--bg-soft),transparent);">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">The Flow</div>
+      <h2>From open app to veiled screen</h2>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><div class="n">1</div><h4>Open an app</h4><p>The accessibility service receives a window event and submits a throttled scan trigger.</p></div>
+      <div class="step reveal"><div class="n">2</div><h4>Scan the screen</h4><p>Mode 1 reads the UI tree; even on a clean pass it wakes OCR and the visual AI for eligible apps.</p></div>
+      <div class="step reveal"><div class="n">3</div><h4>Detect a match</h4><p>Any layer matching a keyword, domain, or explicit image publishes a veil request.</p></div>
+      <div class="step reveal"><div class="n">4</div><h4>Veil &amp; lock</h4><p>The overlay draws the Veil; lockdown may send you home and log the block encrypted.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="detection">
   <div class="wrap">
     <div class="section-head reveal">
       <div class="kicker">The Pipeline</div>
       <h2>Three modes, one decision</h2>
       <p>Each layer publishes to a shared event bus. Any match draws the Veil.</p>
     </div>
-
     <div class="pipeline">
-      <div class="pstep reveal">
-        <div class="num">1</div>
-        <h3>UI Tree Analysis</h3>
+      <div class="pstep reveal"><div class="num">1</div><h3>UI Tree Analysis</h3>
         <p>Inspects the accessibility node tree of the active app for blocked keywords and domains.</p>
-        <ul>
-          <li>Regex + substring blocklists</li>
-          <li>Browser address-bar domains</li>
-          <li>LOW / MEDIUM / HIGH risk tiers</li>
-        </ul>
-      </div>
-      <div class="pstep reveal">
-        <div class="num">2</div>
-        <h3>Intelligent OCR</h3>
+        <ul><li>Regex + substring blocklists</li><li>Browser address-bar domains</li><li>LOW / MEDIUM / HIGH risk tiers</li></ul></div>
+      <div class="pstep reveal"><div class="num">2</div><h3>Intelligent OCR</h3>
         <p>Captures an in-memory screen clip and reads text hidden inside images and videos.</p>
-        <ul>
-          <li>RapidOCR (FOSS) or ML Kit</li>
-          <li>Catches text Mode 1 can't see</li>
-          <li>Woken only on eligible apps</li>
-        </ul>
-      </div>
-      <div class="pstep reveal">
-        <div class="num">3</div>
-        <h3>Visual AI</h3>
+        <ul><li>RapidOCR (FOSS) or ML Kit</li><li>Catches text Mode 1 can't see</li><li>Woken only on eligible apps</li></ul></div>
+      <div class="pstep reveal"><div class="num">3</div><h3>Visual AI</h3>
         <p>Runs a NudeNet model locally via ONNX Runtime to detect explicit imagery and poses.</p>
-        <ul>
-          <li>Mobile (~6MB) / Enhanced (~15MB)</li>
-          <li>YOLOv8 detection decoding</li>
-          <li>Thermal-guarded pacing</li>
-        </ul>
-      </div>
+        <ul><li>Mobile (~6MB) / Enhanced (~15MB)</li><li>YOLOv8 detection decoding</li><li>Thermal-guarded pacing</li></ul></div>
     </div>
-
     <div class="code reveal" style="margin-top:28px;">
 <span class="c">// A detection flows like this:</span><br/>
-<span class="p">AccessibilityService</span> onWindowEvent()<br/>
+<span class="p">AccessibilityService</span>.onWindowEvent()<br/>
 &nbsp;&nbsp;└─ <span class="p">UITreeScanner.scan()</span>  <span class="c">// Mode 1</span><br/>
 &nbsp;&nbsp;&nbsp;&nbsp;├─ match? → <span class="s">DetectionBus.publishVeilRequested(MODE_1)</span><br/>
 &nbsp;&nbsp;&nbsp;&nbsp;└─ wake → <span class="s">Mode1Triggered</span><br/>
@@ -152,7 +141,38 @@
   </div>
 </section>
 
-<!-- SECURITY -->
+<section id="compare" style="background:linear-gradient(180deg,transparent,var(--bg-soft));">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Why HaramVeil</div>
+      <h2>HaramVeil vs. a DNS blocker</h2>
+    </div>
+    <div class="cmp">
+      <div class="cmp-col reveal">
+        <h3>🌐 DNS / VPN Blocker</h3>
+        <div class="tag">Network-level filtering</div>
+        <div class="cmp-row"><span>Blocks by domain only</span><span class="n">Limited</span></div>
+        <div class="cmp-row"><span>Sees embedded images/video</span><span class="n">No</span></div>
+        <div class="cmp-row"><span>Easy to disable / bypass</span><span class="n">Yes</span></div>
+        <div class="cmp-row"><span>On-device content analysis</span><span class="n">No</span></div>
+        <div class="cmp-row"><span>Works fully offline</span><span class="y">Often</span></div>
+      </div>
+      <div class="cmp-col hv reveal">
+        <h3>🛡️ HaramVeil</h3>
+        <div class="tag">Screen-level, on-device</div>
+        <div class="cmp-row"><span>Blocks by keyword &amp; domain</span><span class="y">Yes</span></div>
+        <div class="cmp-row"><span>Sees embedded images/video</span><span class="y">Yes (OCR + AI)</span></div>
+        <div class="cmp-row"><span>Hard to disable impulsively</span><span class="y">PIN + Admin</span></div>
+        <div class="cmp-row"><span>On-device content analysis</span><span class="y">Yes</span></div>
+        <div class="cmp-row"><span>Works fully offline</span><span class="y">Yes (FOSS)</span></div>
+      </div>
+    </div>
+    <p class="reveal" style="text-align:center;color:var(--muted);max-width:620px;margin:22px auto 0;">
+      Use HaramVeil <b>alongside</b> a DNS blocker like NextDNS or AdGuard as the final safeguard — network blocks narrow the field; HaramVeil catches what slips through.
+    </p>
+  </div>
+</section>
+
 <section id="security">
   <div class="wrap">
     <div class="section-head reveal">
@@ -173,7 +193,6 @@
   </div>
 </section>
 
-<!-- STATS -->
 <section style="padding-top:30px;">
   <div class="wrap">
     <div class="stat-row">
@@ -185,7 +204,6 @@
   </div>
 </section>
 
-<!-- FLAVORS -->
 <section id="flavors" style="background:linear-gradient(180deg,transparent,var(--bg-soft));">
   <div class="wrap">
     <div class="section-head reveal">
@@ -211,7 +229,23 @@ cd HaramVeil<br/>
   </div>
 </section>
 
-<!-- DOCS -->
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Questions</div>
+      <h2>Frequently asked</h2>
+    </div>
+    <div class="faq">
+      <details class="reveal"><summary>Will this slow down my phone?</summary><div class="ans">HaramVeil is optimized: visual AI uses hardware acceleration where available, scans are throttled, and a "Battery vs. Protection" pacing control lets you tune frequency. A thermal guard automatically slows visual scanning if inference gets slow.</div></details>
+      <details class="reveal"><summary>Is my screen data uploaded?</summary><div class="ans">Never. All processing — OCR, AI inference, and keyword matching — happens strictly on your device. The FOSS production build does not even request the INTERNET permission.</div></details>
+      <details class="reveal"><summary>Can I use this with a VPN or DNS blocker?</summary><div class="ans">Yes, and it's recommended. HaramVeil is the "last line of defense" that catches content network-level blockers miss (embedded media, in-app browsers).</div></details>
+      <details class="reveal"><summary>What if I forget my PIN?</summary><div class="ans">You can recover access through the security questions you set during onboarding. These are stored locally and encrypted.</div></details>
+      <details class="reveal"><summary>How do I temporarily disable it?</summary><div class="ans">Open a "Safe Window" with your PIN. It pauses protection for a chosen duration and auto-resumes afterward so you don't stay unprotected by accident.</div></details>
+      <details class="reveal"><summary>Why does it need Accessibility and Overlay?</summary><div class="ans">Accessibility lets HaramVeil read the on-screen UI tree for detection, and the overlay (SYSTEM_ALERT_WINDOW) permission lets it draw the protective Veil over other apps. Both are required for it to function.</div></details>
+    </div>
+  </div>
+</section>
+
 <section id="docs">
   <div class="wrap">
     <div class="section-head reveal">
@@ -228,7 +262,6 @@ cd HaramVeil<br/>
   </div>
 </section>
 
-<!-- CTA -->
 <section>
   <div class="wrap">
     <div class="cta-banner reveal">
@@ -242,7 +275,6 @@ cd HaramVeil<br/>
   </div>
 </section>
 
-<!-- FOOTER -->
 <footer>
   <div class="wrap">
     <div class="foot-inner">
@@ -250,20 +282,17 @@ cd HaramVeil<br/>
         <div class="brand" style="margin-bottom:12px;"><div class="logo">🛡️</div><span>Haram<b>Veil</b></span></div>
         <p style="color:var(--muted);font-size:14px;">A privacy-first digital guardian for Android. Built for the community, by the community.</p>
       </div>
-      <div class="col">
-        <h5>Project</h5>
+      <div class="col"><h5>Project</h5>
         <a href="https://github.com/darkmaster0345/HaramVeil" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/darkmaster0345/HaramVeil/releases" target="_blank" rel="noopener">Releases</a>
         <a href="https://github.com/darkmaster0345/HaramVeil/blob/main/docs/README.md" target="_blank" rel="noopener">Docs Index</a>
       </div>
-      <div class="col">
-        <h5>Learn</h5>
+      <div class="col"><h5>Learn</h5>
         <a href="https://github.com/darkmaster0345/HaramVeil/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
         <a href="https://github.com/darkmaster0345/HaramVeil/blob/main/docs/DETECTION.md" target="_blank" rel="noopener">Detection</a>
         <a href="https://github.com/darkmaster0345/HaramVeil/blob/main/docs/SECURITY.md" target="_blank" rel="noopener">Security</a>
       </div>
-      <div class="col">
-        <h5>Build</h5>
+      <div class="col"><h5>Build</h5>
         <a href="https://github.com/darkmaster0345/HaramVeil/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development</a>
         <a href="https://github.com/darkmaster0345/HaramVeil/blob/main/docs/FEATURES.md" target="_blank" rel="noopener">Features</a>
         <a href="https://www.gnu.org/licenses/gpl-3.0" target="_blank" rel="noopener">GPL-3.0 License</a>
@@ -277,11 +306,15 @@ cd HaramVeil<br/>
 </footer>
 
 <script>
-  // Scroll reveal
   const io = new IntersectionObserver((entries) => {
     entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  const burger = document.getElementById('hamburger');
+  const menu = document.getElementById('mobileMenu');
+  burger.addEventListener('click', () => menu.classList.toggle('open'));
+  menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.remove('open')));
 </script>
 </body>
 </html>

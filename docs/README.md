@@ -85,6 +85,7 @@ HaramVeil/
 | [SECURITY.md](docs/SECURITY.md) | PIN, lockdown, device admin, safe window, data encryption |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build flavors, setup, testing, contribution guidelines |
 | [FEATURES.md](docs/FEATURES.md) | User-facing feature reference |
+| [FAQ.md](docs/FAQ.md) | Frequently asked questions |
 
 ---
 

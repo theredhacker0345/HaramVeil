@@ -21,37 +21,38 @@ role of each package.
 ## Component Map
 
 ```
-                         ┌─────────────────────────────┐
-                         │         MainActivity          │
-                         │   (Compose NavHost shell)     │
-                         └───────────────┬───────────────┘
-                                         │ starts
-                                         ▼
-                       ┌──────────────────────────────────┐
-                       │   HaramVeilForegroundService       │  (sticky, specialUse)
-                       │  - heartbeat loop                  │
-                       │  - boot / user-unlock recovery     │
-                       │  - Samsung wake-lock keep-alive     │
-                       └───────┬──────────────────────┬─────┘
-                               │ starts                │ starts
-                               ▼                        ▼
-                ┌──────────────────────────┐   ┌────────────────────────────┐
-                │ HaramVeilAccessibilitySvc│   │     VeilOverlayService      │
-                │  - listens to window     │   │  - draws the protective veil│
-                │    events                 │   │  - native hardware-accel.   │
-                │  - Mode 1 scan driver     │   └──────────────┬─────────────┘
-                └───────────┬──────────────┘                  │
-                            │ publishes scan triggers         │ DetectionBus
-                            ▼                                  │ (veil requests)
-                ┌───────────────────────────────┐            │
-                │  Mode2Processor  Mode3Processor │◄───────────┘
-                │  (OCR)            (Visual AI)   │
-                └───────────┬───────────────────┘
-                            │ log blocks
-                            ▼
-                ┌──────────────────────────────┐
-                │  StatsRepository (SQLCipher)  │
-                └──────────────────────────────┘
+ ╔═══════════════════════════════════════════════════════════════════════════════╗
+ ║                              MainActivity (Compose)                            ║
+ ║                  Dashboard · Stats · Settings · Security gates                 ║
+ ╚══════════════════════╦════════════════════════════════════════════════════════╝
+                         │ HaramVeilProtectionController.start()
+                         ▼
+ ╔═══════════════════════════════════════════════════════════════════════════════╗
+ ║                   HaramVeilForegroundService  (STICKY, specialUse)            ║
+ ║   • 30s heartbeat   • boot / user-unlock recovery   • Samsung wake-lock       ║
+ ╚══════╦═══════════════════════════╦════════════════════════════════════════════╝
+        │ starts                     │ starts
+        ▼                             ▼
+ ┌──────────────────────────────┐   ┌──────────────────────────────────────────┐
+ │ HaramVeilAccessibilityService│   │           VeilOverlayService               │
+ │  • window event listener      │   │  • native hardware-accelerated window     │
+ │  • ThrottleManager (debounce) │   │  • renders the protective "Veil"          │
+ │  • Mode 1 scan driver         │   └───────────────────┬──────────────────────┘
+ └───────────────┬──────────────┘                       │ DetectionBus.veilRequested
+                 │ Mode1Triggered (wake)                 │
+                 ▼                                        │
+   ┌──────────────────────────────┐                     │
+   │  Mode2Processor   Mode3Processor│◄──────────────────┘
+   │  (OCR, in-memory) (Visual AI)   │
+   └───────────────┬──────────────┘
+                   │ StatsRepository.logBlock()
+                   ▼
+   ┌──────────────────────────────┐
+   │  StatsRepository (SQLCipher)  │  keyed to PIN hash
+   └──────────────────────────────┘
+
+   Resilience layer (always running): BootReceiver · ServiceHealthAlarmReceiver
+   · ProtectionHealthWorker (WorkManager) · ProtectionResumeWorker · StatsCleanupWorker
 ```
 
 ## Key Packages
