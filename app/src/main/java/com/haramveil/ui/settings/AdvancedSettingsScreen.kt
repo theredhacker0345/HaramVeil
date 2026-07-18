@@ -149,7 +149,7 @@ fun AdvancedSettingsScreen(
         }
         item {
             Text(
-                text = "Mode 3 runs only for apps you explicitly force to Mode 3 here.",
+                text = "Mode 3 runs for all monitored apps (plus browsers and high-risk apps), independent of Mode 1. Forcing an app here overrides its default mode.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp),

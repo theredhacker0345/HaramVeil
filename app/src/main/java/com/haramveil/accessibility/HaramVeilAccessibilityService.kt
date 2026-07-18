@@ -166,7 +166,13 @@ class HaramVeilAccessibilityService : AccessibilityService() {
         }
 
         if (!currentSettings.mode1Enabled && !isBrowserPackage) {
-            return
+            // Mode 1 is off for this app, but Mode 3 (visual) may still need to run for
+            // monitored / browser / high-risk apps, so don't bail out early in that case.
+            val mode3Eligible = currentSettings.mode3Enabled &&
+                (isBrowserPackage || isHighRiskPackage || packageName in currentSettings.monitoredPackages)
+            if (!mode3Eligible) {
+                return
+            }
         }
 
         // Always scan browsers and high-risk apps, even if not in monitored packages list
@@ -232,6 +238,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             val isBrowserApp = trigger.isBrowser
             val isMonitoredApp = isBrowserApp || trigger.packageName in currentSettings.monitoredPackages
             val isMode3Forced = trigger.packageName in currentSettings.mode3ForcedPackages
+            val mode3Eligible = isBrowserApp || isHighRiskApp || trigger.packageName in currentSettings.monitoredPackages
             val scanResult = uiTreeScanner.scan(
                 rootNode = trigger.rootNode,
                 packageName = trigger.packageName,
@@ -242,12 +249,29 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                 isHighRisk = isHighRiskApp,
             )
 
+            val wakeMode3 = currentSettings.mode3Enabled && mode3Eligible
+            val wakeMode2 = currentSettings.mode2Enabled
+
+            // When Mode 1's text/keyword scan did not match, we still need to wake the
+            // visual (Mode 3) pipeline for eligible apps so purely graphical adult content
+            // is caught. In that case we publish the wake request without showing a
+            // Mode 1 veil (there was no textual trigger to report).
             if (!scanResult.triggered) {
+                if (wakeMode3) {
+                    DebugLog.d(applicationContext, LogTag) {
+                        "Mode 1 text scan clean for ${trigger.packageName}; waking Mode 3 visual scan."
+                    }
+                    DetectionBus.publishMode1Triggered(
+                        Mode1WakeRequest(
+                            scanResult = scanResult,
+                            wakeMode2 = wakeMode2,
+                            wakeMode3 = true,
+                        ),
+                    )
+                }
                 return
             }
 
-            val wakeMode2 = currentSettings.mode2Enabled
-            val wakeMode3 = currentSettings.mode3Enabled && (isMode3Forced || isBrowserApp || isHighRiskApp)
             DebugLog.d(applicationContext, LogTag) { "Wake Request: mode2=${wakeMode2}, mode3=${wakeMode3} for ${trigger.packageName} (isBrowser=${isBrowserApp}, isHighRisk=${isHighRiskApp}, isForced=${isMode3Forced})" }
             val matchDetails = buildMatchDetails(scanResult, isHighRiskApp, isMonitoredApp)
 
