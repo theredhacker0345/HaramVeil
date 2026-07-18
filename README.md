@@ -12,6 +12,8 @@
 
 ---
 
+> 📚 **Full documentation** lives in the [`docs/`](docs/) folder: [Architecture](docs/ARCHITECTURE.md), [Detection Pipeline](docs/DETECTION.md), [Security & Privacy](docs/SECURITY.md), [Development](docs/DEVELOPMENT.md), and [Features](docs/FEATURES.md). A companion site is published to GitHub Pages.
+
 ## 🌟 Vision & Purpose
 
 In an age where explicit content is often just a click away, **HaramVeil** aims to provide a proactive safety net. Unlike standard DNS blockers that can be easily bypassed or miss embedded content, HaramVeil analyzes what is actually being displayed on your screen, providing a last line of defense that is both intelligent and difficult to circumvent.
