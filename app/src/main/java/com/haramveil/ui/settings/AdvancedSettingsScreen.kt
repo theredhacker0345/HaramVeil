@@ -66,6 +66,21 @@ import com.haramveil.ui.ModeOverrideOption
 import com.haramveil.ui.SectionLabel
 import com.haramveil.ui.StatusPill
 
+// HaramClip bounds must match saveHaramClipConfiguration and ScreenCaptureManager.combineCaptureZones,
+// otherwise dragging past the limit snaps back without an explanation.
+private const val TopCapturePercentMin = 10f
+private const val TopCapturePercentMax = 45f
+private const val MiddleCapturePercentMin = 20f
+private const val MiddleCapturePercentMax = 50f
+private const val CapturePercentStep = 5
+
+private val TopCapturePercentRange = TopCapturePercentMin..TopCapturePercentMax
+private val MiddleCapturePercentRange = MiddleCapturePercentMin..MiddleCapturePercentMax
+private val TopCapturePercentSteps =
+    ((TopCapturePercentMax - TopCapturePercentMin) / CapturePercentStep).toInt() - 1
+private val MiddleCapturePercentSteps =
+    ((MiddleCapturePercentMax - MiddleCapturePercentMin) / CapturePercentStep).toInt() - 1
+
 @Composable
 fun AdvancedSettingsScreen(
     appConfigs: List<AppMonitoringUiModel>,
@@ -332,16 +347,16 @@ fun AdvancedSettingsScreen(
                     label = "Top capture %",
                     description = "$topCapturePercent% of the screen",
                     value = topCapturePercent.toFloat(),
-                    valueRange = 10f..50f,
-                    steps = 7,
+                    valueRange = TopCapturePercentRange,
+                    steps = TopCapturePercentSteps,
                     onValueChange = { onTopCapturePercentChanged(it.toInt()) },
                 )
                 SliderControl(
                     label = "Middle capture %",
                     description = "$middleCapturePercent% of the screen",
                     value = middleCapturePercent.toFloat(),
-                    valueRange = 20f..60f,
-                    steps = 7,
+                    valueRange = MiddleCapturePercentRange,
+                    steps = MiddleCapturePercentSteps,
                     onValueChange = { onMiddleCapturePercentChanged(it.toInt()) },
                 )
             }

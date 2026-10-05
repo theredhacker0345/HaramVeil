@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -66,6 +67,7 @@ fun PinEntryScreen(
     errorMessage: String? = null,
     isLockedOut: Boolean = false,
     lockoutRemainingMs: Long = 0L,
+    isBusy: Boolean = false,
     showForgotPin: Boolean = false,
     shakeTrigger: Int = 0,
     cancelLabel: String? = null,
@@ -134,7 +136,7 @@ fun PinEntryScreen(
             )
 
             PinNumpad(
-                enabled = !isLockedOut,
+                enabled = !isLockedOut && !isBusy,
                 onDigitPressed = onDigitPressed,
                 onClear = onClear,
                 onBackspace = onBackspace,
@@ -142,10 +144,18 @@ fun PinEntryScreen(
 
             Button(
                 onClick = onConfirm,
-                enabled = enteredPin.length == RequiredPinLength && !isLockedOut,
+                enabled = enteredPin.length == RequiredPinLength && !isLockedOut && !isBusy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(confirmLabel)
+                if (isBusy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(BusyIndicatorSize),
+                        strokeWidth = BusyIndicatorStrokeWidth,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text(confirmLabel)
+                }
             }
 
             Row(
@@ -154,7 +164,7 @@ fun PinEntryScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (showForgotPin && onForgotPin != null) {
-                    TextButton(onClick = onForgotPin) {
+                    TextButton(onClick = onForgotPin, enabled = !isBusy) {
                         Text("Forgot PIN?")
                     }
                 } else {
@@ -162,7 +172,7 @@ fun PinEntryScreen(
                 }
 
                 if (cancelLabel != null && onCancel != null) {
-                    OutlinedButton(onClick = onCancel) {
+                    OutlinedButton(onClick = onCancel, enabled = !isBusy) {
                         Text(cancelLabel)
                     }
                 }
@@ -312,3 +322,6 @@ internal fun formatLockoutCountdown(
 }
 
 internal const val RequiredPinLength = 6
+
+internal val BusyIndicatorSize = 18.dp
+internal val BusyIndicatorStrokeWidth = 2.dp

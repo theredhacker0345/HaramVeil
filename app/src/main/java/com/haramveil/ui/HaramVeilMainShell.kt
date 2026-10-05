@@ -87,6 +87,7 @@ import com.haramveil.data.models.InstalledAppInfo
 import com.haramveil.data.models.ProtectionSettings
 import com.haramveil.data.models.TextRecognitionEngine
 import com.haramveil.data.models.VisualModelOption
+import com.haramveil.detection.mode1.UITreeScanner
 import com.haramveil.detection.mode3.ModelSelectionState
 import com.haramveil.detection.mode3.ModelSelector
 import com.haramveil.security.AppLockdownManager
@@ -109,8 +110,10 @@ import com.haramveil.ui.stats.StatsRoute
 import com.haramveil.ui.stats.StatsScreen
 import com.haramveil.utils.BatteryOptimizationHelper
 import com.haramveil.utils.RootAccessHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -144,6 +147,21 @@ private enum class SensitiveAction {
 }
 
 private const val SafeWindowDefaultMs = 15 * 60 * 1_000L
+private const val RuntimeStatePollIntervalMs = 1_000L
+
+/**
+ * Single holder for every value the shell polls. All of them come from binder or
+ * `Settings.Global` reads, so the whole snapshot is built on [Dispatchers.IO] and never
+ * during composition.
+ */
+private data class ShellRuntimeState(
+    val activeLockdowns: List<ActiveLockdownUiModel> = emptyList(),
+    val foregroundServiceActive: Boolean = false,
+    val lastServiceHeartbeatMs: Long = 0L,
+    val lastScanHeartbeatMs: Long = 0L,
+    val deviceAdminEnabled: Boolean = false,
+    val rootModeEnabled: Boolean = false,
+)
 
 @Composable
 fun HaramVeilMainShell(
@@ -185,9 +203,6 @@ fun HaramVeilMainShell(
     }
     val batteryOptimizationGuide = remember(context) {
         BatteryOptimizationHelper.resolveGuide(context.applicationContext)
-    }
-    val rootModeEnabled = remember(context) {
-        RootAccessHelper.isRootAvailable()
     }
     val initialProtectionSettings = remember(
         selectedTextEngine,
@@ -237,10 +252,7 @@ fun HaramVeilMainShell(
     var settingsUnlocked by rememberSaveable { mutableStateOf(false) }
     var pendingSensitiveAction by remember { mutableStateOf<SensitiveAction?>(null) }
     var pendingSafeWindowDurationMs by remember { mutableStateOf<Long?>(null) }
-    var foregroundServiceActive by remember { mutableStateOf(bootstrapStore.isServiceAlive()) }
-    var lastServiceHeartbeatMs by remember { mutableStateOf(bootstrapStore.lastServiceHeartbeatMs()) }
-    var lastScanHeartbeatMs by remember { mutableStateOf(bootstrapStore.lastScanHeartbeatMs()) }
-    var deviceAdminEnabled by remember { mutableStateOf(DeviceAdminController.isEnabled(context.applicationContext)) }
+    var runtimeState by remember { mutableStateOf(ShellRuntimeState()) }
     var showBatteryOptimizationDialog by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val activeTextEngine = protectionSettings.selectedTextEngine
@@ -266,7 +278,12 @@ fun HaramVeilMainShell(
     val statsRetentionDays = protectionSettings.statsRetentionDays
     val topCapturePercent = protectionSettings.topCapturePercent.toFloat()
     val middleCapturePercent = protectionSettings.middleCapturePercent.toFloat()
-    var activeLockdowns by remember { mutableStateOf(emptyList<ActiveLockdownUiModel>()) }
+    val activeLockdowns = runtimeState.activeLockdowns
+    val foregroundServiceActive = runtimeState.foregroundServiceActive
+    val lastServiceHeartbeatMs = runtimeState.lastServiceHeartbeatMs
+    val lastScanHeartbeatMs = runtimeState.lastScanHeartbeatMs
+    val deviceAdminEnabled = runtimeState.deviceAdminEnabled
+    val rootModeEnabled = runtimeState.rootModeEnabled
 
     val monitoredApps = appConfigs.filter { it.isMonitored }
     val knownAppsByPackage = remember(appConfigs, installedApps) {
@@ -379,20 +396,28 @@ fun HaramVeilMainShell(
     }
 
     LaunchedEffect(knownAppsByPackage) {
+        val applicationContext = context.applicationContext
         while (true) {
-            activeLockdowns = appLockdownManager.activeLockdowns().map { lockdown ->
-                val app = knownAppsByPackage[lockdown.packageName] ?: fallbackInstalledApp(lockdown.packageName)
-                ActiveLockdownUiModel(
-                    app = app,
-                    remainingDurationMs = lockdown.remainingDurationMs(),
-                    remainingLabel = formatRemainingDuration(lockdown.remainingDurationMs()),
+            runtimeState = withContext(Dispatchers.IO) {
+                ShellRuntimeState(
+                    activeLockdowns = appLockdownManager.activeLockdowns().map { lockdown ->
+                        val app = knownAppsByPackage[lockdown.packageName]
+                            ?: fallbackInstalledApp(lockdown.packageName)
+                        val remainingDurationMs = lockdown.remainingDurationMs()
+                        ActiveLockdownUiModel(
+                            app = app,
+                            remainingDurationMs = remainingDurationMs,
+                            remainingLabel = formatRemainingDuration(remainingDurationMs),
+                        )
+                    },
+                    foregroundServiceActive = bootstrapStore.isServiceAlive(),
+                    lastServiceHeartbeatMs = bootstrapStore.lastServiceHeartbeatMs(),
+                    lastScanHeartbeatMs = bootstrapStore.lastScanHeartbeatMs(),
+                    deviceAdminEnabled = DeviceAdminController.isEnabled(applicationContext),
+                    rootModeEnabled = RootAccessHelper.isRootAvailable(),
                 )
             }
-            foregroundServiceActive = bootstrapStore.isServiceAlive()
-            lastServiceHeartbeatMs = bootstrapStore.lastServiceHeartbeatMs()
-            lastScanHeartbeatMs = bootstrapStore.lastScanHeartbeatMs()
-            deviceAdminEnabled = DeviceAdminController.isEnabled(context.applicationContext)
-            delay(1_000L)
+            delay(RuntimeStatePollIntervalMs)
         }
     }
 
@@ -1023,6 +1048,8 @@ private fun rememberAccessibilityServiceStatus(
     return isActive
 }
 
+private val highRiskPackageClassifier = UITreeScanner()
+
 private fun buildInitialAppConfigs(
     installedApps: List<InstalledAppInfo>,
     selectedPackages: Set<String>,
@@ -1032,27 +1059,27 @@ private fun buildInitialAppConfigs(
         InstalledAppInfo(
             packageName = "com.instagram.android",
             label = "Instagram",
-            isHighRisk = true,
+            isHighRisk = highRiskPackageClassifier.isHighRiskPackage("com.instagram.android"),
         ),
         InstalledAppInfo(
             packageName = "com.android.chrome",
             label = "Chrome",
-            isHighRisk = true,
+            isHighRisk = highRiskPackageClassifier.isHighRiskPackage("com.android.chrome"),
         ),
         InstalledAppInfo(
             packageName = "com.google.android.youtube",
             label = "YouTube",
-            isHighRisk = true,
+            isHighRisk = highRiskPackageClassifier.isHighRiskPackage("com.google.android.youtube"),
         ),
         InstalledAppInfo(
             packageName = "org.mozilla.firefox",
             label = "Firefox",
-            isHighRisk = true,
+            isHighRisk = highRiskPackageClassifier.isHighRiskPackage("org.mozilla.firefox"),
         ),
         InstalledAppInfo(
             packageName = "org.telegram.messenger",
             label = "Telegram",
-            isHighRisk = true,
+            isHighRisk = highRiskPackageClassifier.isHighRiskPackage("org.telegram.messenger"),
         ),
     )
     val appSource = if (installedApps.isEmpty()) fallbackApps else installedApps

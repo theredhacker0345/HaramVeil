@@ -19,14 +19,18 @@
 package com.haramveil.utils
 
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 data class PendingAccessibilityEvent(
     val packageName: String,
@@ -42,8 +46,12 @@ class ThrottledScanTrigger(
     val isHighRisk: Boolean = false,
     val issuedAtEpochMs: Long = System.currentTimeMillis(),
 ) {
+    private val isRecycled = AtomicBoolean(false)
+
     fun recycle() {
-        rootNode.recycle()
+        if (isRecycled.compareAndSet(false, true)) {
+            runCatching { rootNode.recycle() }
+        }
     }
 }
 
@@ -54,43 +62,89 @@ class ThrottleManager(
     private val buildTrigger: suspend (PendingAccessibilityEvent) -> ThrottledScanTrigger?,
 ) {
     private val debounceMs = MutableStateFlow(initialDebounceMs.coerceIn(minimumValue = 250L, maximumValue = 2_000L))
-    private val pendingEvents = MutableSharedFlow<PendingAccessibilityEvent>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    private val _scanTriggers = MutableSharedFlow<ThrottledScanTrigger>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    // Single-slot conflate: only the newest event of a burst survives until the debounce elapses.
+    private val pendingSlot = AtomicReference<PendingAccessibilityEvent?>(null)
+    private val wakeSignals = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    private val _scanTriggers = MutableSharedFlow<ThrottledScanTrigger>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.SUSPEND,
+    )
+    private val unconsumedTrigger = AtomicReference<ThrottledScanTrigger?>(null)
+    private val stopped = AtomicBoolean(false)
     private var lastProcessedFingerprint: Pair<String, Int>? = null
 
     val scanTriggers = _scanTriggers.asSharedFlow()
 
-    init {
-        scope.launch(dispatcherProvider.default) {
-            pendingEvents.collect { event ->
-                val currentDebounce = debounceMs.value
-                delay(currentDebounce)
-                val trigger = buildTrigger(event) ?: return@collect
-                val fingerprint = event.packageName to trigger.nodeHash
-                if (fingerprint == lastProcessedFingerprint) {
-                    trigger.recycle()
-                    return@collect
-                }
+    private val collectorJob: Job = scope.launch(dispatcherProvider.default) {
+        wakeSignals.collect {
+            delay(debounceMs.value)
+            val pendingEvent = pendingSlot.getAndSet(null) ?: return@collect
+            val trigger = runCatching { buildTrigger(pendingEvent) }.getOrNull() ?: return@collect
+            unconsumedTrigger.set(trigger)
 
-                lastProcessedFingerprint = fingerprint
+            val fingerprint = pendingEvent.packageName to trigger.nodeHash
+            if (fingerprint == lastProcessedFingerprint) {
+                unconsumedTrigger.compareAndSet(trigger, null)
+                trigger.recycle()
+                return@collect
+            }
+
+            lastProcessedFingerprint = fingerprint
+            val delivered = try {
                 _scanTriggers.emit(trigger)
+                true
+            } catch (cancellation: CancellationException) {
+                trigger.recycle()
+                throw cancellation
+            } catch (_: Throwable) {
+                false
+            }
+            if (delivered) {
+                unconsumedTrigger.compareAndSet(trigger, null)
+            } else {
+                trigger.recycle()
             }
         }
+    }
+
+    init {
+        collectorJob.invokeOnCompletion { drainPendingTriggers() }
     }
 
     fun submit(
         packageName: String,
         eventType: Int,
     ) {
-        pendingEvents.tryEmit(
+        if (stopped.get()) {
+            return
+        }
+        pendingSlot.set(
             PendingAccessibilityEvent(
                 packageName = packageName,
                 eventType = eventType,
             ),
         )
+        wakeSignals.tryEmit(Unit)
     }
 
     fun updateDebounceMs(intervalMs: Long) {
         debounceMs.value = intervalMs.coerceIn(minimumValue = 250L, maximumValue = 2_000L)
+    }
+
+    fun stop() {
+        stopped.set(true)
+        collectorJob.cancel()
+        drainPendingTriggers()
+    }
+
+    private fun drainPendingTriggers() {
+        pendingSlot.set(null)
+        while (true) {
+            val trigger = unconsumedTrigger.getAndSet(null) ?: break
+            trigger.recycle()
+        }
     }
 }

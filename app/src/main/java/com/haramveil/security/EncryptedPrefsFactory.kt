@@ -20,26 +20,41 @@ package com.haramveil.security
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
+internal class EncryptedPrefsUnavailableException(
+    cause: Throwable,
+) : IllegalStateException("Encrypted preferences could not be opened.", cause)
+
 internal object EncryptedPrefsFactory {
+    private const val LogTag = "HaramVeilSecurePrefs"
     private const val MasterKeyAlias = "haramveil.master_key.v1"
 
+    // Never falls back to plaintext storage: a keystore failure fails closed and says why.
     fun create(
         context: Context,
         preferenceFileName: String,
-    ): SharedPreferences {
-        val masterKey = MasterKey.Builder(context.applicationContext, MasterKeyAlias)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+    ): SharedPreferences =
+        runCatching {
+            val masterKey = MasterKey.Builder(context.applicationContext, MasterKeyAlias)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-        return EncryptedSharedPreferences.create(
-            context.applicationContext,
-            preferenceFileName,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }
+            EncryptedSharedPreferences.create(
+                context.applicationContext,
+                preferenceFileName,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }.getOrElse { throwable ->
+            Log.e(
+                LogTag,
+                "Keystore-backed prefs '$preferenceFileName' are unavailable; refusing plaintext storage.",
+                throwable,
+            )
+            throw EncryptedPrefsUnavailableException(throwable)
+        }
 }

@@ -26,7 +26,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.haramveil.accessibility.isHaramVeilAccessibilityServiceEnabled
 import com.haramveil.data.local.ProtectionPreferencesRepository
+import com.haramveil.utils.DebugLog
 import com.haramveil.utils.RootAccessHelper
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 class ProtectionHealthWorker(
@@ -34,25 +36,37 @@ class ProtectionHealthWorker(
     workerParameters: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParameters) {
     override suspend fun doWork(): Result {
-        val context = applicationContext
+        // WorkManager re-throws a failure out of doWork, so nothing may escape here except
+        // a CancellationException, which must propagate for structured cancellation.
+        return try {
+            runHealthCheck(applicationContext)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            DebugLog.w(applicationContext, LogTag) {
+                "Protection health check failed: ${error.javaClass.simpleName}: ${error.message}"
+            }
+            Result.success()
+        }
+    }
+
+    private suspend fun runHealthCheck(context: Context) {
         val bootstrapStore = ProtectionBootstrapStore(context)
         if (!bootstrapStore.isBootstrapReady()) {
-            return Result.success()
+            return
         }
 
         val repository = ProtectionPreferencesRepository(context)
         val settings = repository.readSettings()
-        val nowMs = System.currentTimeMillis()
         if (settings.protectionPauseUntilMs > 0L) {
-            if (nowMs >= settings.protectionPauseUntilMs) {
-                repository.resumeProtectionAfterPause()
-                HaramVeilProtectionController.start(context)
-            }
-            return Result.success()
+            // Safe window: the shared helper re-arms the alarm and the one-shot worker for
+            // the remaining window and resumes protection once the deadline passes.
+            resumeProtectionIfPauseElapsed(context)
+            return
         }
 
         if (!bootstrapStore.isProtectionEnabled()) {
-            return Result.success()
+            return
         }
 
         if (!bootstrapStore.isServiceAlive()) {
@@ -67,12 +81,12 @@ class ProtectionHealthWorker(
                 ProtectionNotificationHelper.showAccessibilityReenablePrompt(context)
             }
         }
-
-        return Result.success()
     }
 
     companion object {
         const val UniqueWorkName = "haramveil_protection_health"
+
+        private const val LogTag = "HaramVeilHealth"
 
         fun enqueue(
             context: Context,

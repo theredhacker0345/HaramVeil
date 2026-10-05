@@ -60,11 +60,26 @@ object BatteryOptimizationHelper {
         context: Context,
         guide: BatteryOptimizationGuide,
     ) {
-        context.startActivity(
-            guide.intent.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-        )
+        val intent = Intent(guide.intent).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        // Vendor pages are missing on plenty of builds, so both the resolvability probe and
+        // the launch itself have to survive ActivityNotFoundException / SecurityException.
+        val isResolvable = runCatching {
+            @Suppress("DEPRECATION")
+            intent.resolveActivity(context.packageManager) != null
+        }.getOrDefault(false)
+        if (!isResolvable) {
+            DebugLog.w(context, LogTag) {
+                "No activity can handle the battery optimization guide for ${Build.MANUFACTURER}."
+            }
+        }
+        runCatching { context.startActivity(intent) }
+            .onFailure { error ->
+                DebugLog.w(context, LogTag) {
+                    "Opening the battery optimization guide failed: ${error.javaClass.simpleName}: ${error.message}"
+                }
+            }
     }
 
     private fun samsungGuide(
@@ -189,6 +204,11 @@ object BatteryOptimizationHelper {
         fallback: Intent,
     ): Intent =
         candidates.firstOrNull { intent ->
-            intent.resolveActivity(context.packageManager) != null
+            runCatching {
+                @Suppress("DEPRECATION")
+                intent.resolveActivity(context.packageManager) != null
+            }.getOrDefault(false)
         } ?: fallback
+
+    private const val LogTag = "HaramVeilBattery"
 }

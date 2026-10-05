@@ -19,28 +19,42 @@
 package com.haramveil.data.local
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 class StatsCleanupWorker(
     appContext: Context,
     workerParameters: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParameters) {
-    override suspend fun doWork(): Result {
-        val retentionDays = ProtectionPreferencesRepository(applicationContext)
-            .readSettings()
-            .statsRetentionDays
-        StatsRepository.getInstance(applicationContext)
-            .cleanupEventsOlderThan(retentionDays)
-        return Result.success()
-    }
+    override suspend fun doWork(): Result =
+        withContext(Dispatchers.IO) {
+            try {
+                val retentionDays = ProtectionPreferencesRepository(applicationContext)
+                    .readSettings()
+                    .statsRetentionDays
+                StatsRepository.getInstance(applicationContext)
+                    .cleanupEventsOlderThan(retentionDays)
+                Result.success()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                // WorkManager rethrows anything that escapes, so every failure becomes a retry.
+                Log.e(LogTag, "Stats cleanup failed; retrying.", throwable)
+                Result.retry()
+            }
+        }
 
     companion object {
         const val UniqueWorkName = "haramveil_stats_cleanup"
+        private const val LogTag = "HaramVeilStatsCleanup"
 
         fun enqueue(
             context: Context,

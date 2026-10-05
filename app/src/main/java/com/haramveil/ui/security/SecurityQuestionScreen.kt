@@ -23,7 +23,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,6 +49,7 @@ fun SecurityQuestionScreen(
     errorMessage: String? = null,
     isLockedOut: Boolean = false,
     lockoutRemainingMs: Long = 0L,
+    isBusy: Boolean = false,
     submitLabel: String = "Submit answers",
     backLabel: String = "Back",
     onAnswerSelected: (Int, Boolean) -> Unit,
@@ -107,13 +110,13 @@ fun SecurityQuestionScreen(
                             FilterChip(
                                 selected = selectedAnswers[index] == true,
                                 onClick = { onAnswerSelected(index, true) },
-                                enabled = !isLockedOut,
+                                enabled = !isLockedOut && !isBusy,
                                 label = { Text("Yes") },
                             )
                             FilterChip(
                                 selected = selectedAnswers[index] == false,
                                 onClick = { onAnswerSelected(index, false) },
-                                enabled = !isLockedOut,
+                                enabled = !isLockedOut && !isBusy,
                                 label = { Text("No") },
                             )
                         }
@@ -126,16 +129,25 @@ fun SecurityQuestionScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedButton(onClick = onBack) {
+                OutlinedButton(onClick = onBack, enabled = !isBusy) {
                     Text(backLabel)
                 }
                 Button(
                     onClick = onSubmit,
                     enabled = questions.isNotEmpty() &&
                         selectedAnswers.size == questions.size &&
-                        !isLockedOut,
+                        !isLockedOut &&
+                        !isBusy,
                 ) {
-                    Text(submitLabel)
+                    if (isBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(BusyIndicatorSize),
+                            strokeWidth = BusyIndicatorStrokeWidth,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Text(submitLabel)
+                    }
                 }
             }
         }

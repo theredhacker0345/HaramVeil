@@ -32,6 +32,7 @@ import androidx.core.content.ContextCompat
 import com.haramveil.data.models.ProtectionSettings
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -48,7 +49,9 @@ class ScreenCaptureManager(
             return@withContext null
         }
 
-        val screenshotResult = awaitScreenshot(accessibilityService) ?: return@withContext null
+        val screenshotResult = withTimeoutOrNull(ScreenshotTimeoutMs) {
+            awaitScreenshot(accessibilityService)
+        } ?: return@withContext null
         buildHaramClipBitmap(
             screenshotResult = screenshotResult,
             topCapturePercent = settings.topCapturePercent,
@@ -94,6 +97,9 @@ class ScreenCaptureManager(
                     override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
                         if (continuation.isActive) {
                             continuation.resume(screenshot)
+                        } else {
+                            // The awaiting coroutine already timed out or was cancelled.
+                            runCatching { screenshot.hardwareBuffer?.close() }
                         }
                     }
 
@@ -173,5 +179,9 @@ class ScreenCaptureManager(
                 null,
             )
         }
+    }
+
+    private companion object {
+        const val ScreenshotTimeoutMs = 5_000L
     }
 }

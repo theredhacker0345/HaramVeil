@@ -22,33 +22,55 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.work.WorkManager
-import com.haramveil.overlay.VeilOverlayService
+import com.haramveil.overlay.VeilOverlayController
+import com.haramveil.utils.DebugLog
 
 object HaramVeilProtectionController {
+    /**
+     * Starts the protection service, tolerating a rejected foreground service start.
+     *
+     * Callers are boot, alarm, worker and device-admin entry points: on API 31+ all of them
+     * run in the background, where `startForegroundService` throws
+     * `ForegroundServiceStartNotAllowedException` whenever no exemption applies. The start is
+     * then deferred to the permission-free inexact health alarm instead of crashing.
+     */
     fun start(
         context: Context,
     ) {
-        ContextCompat.startForegroundService(
-            context.applicationContext,
-            Intent(context.applicationContext, HaramVeilForegroundService::class.java).apply {
-                action = HaramVeilForegroundService.ActionStart
-            },
-        )
+        val appContext = context.applicationContext
+        val started = runCatching {
+            ContextCompat.startForegroundService(
+                appContext,
+                Intent(appContext, HaramVeilForegroundService::class.java).apply {
+                    action = HaramVeilForegroundService.ActionStart
+                },
+            )
+        }.isSuccess
+        if (!started) {
+            DebugLog.w(appContext, LogTag) {
+                "Protection service start was rejected; deferring to the health alarm."
+            }
+            ServiceHealthAlarmReceiver.scheduleDeferredRestart(appContext)
+        }
     }
 
     fun stop(
         context: Context,
     ) {
+        val appContext = context.applicationContext
         runCatching {
-            context.applicationContext.startService(
-                Intent(context.applicationContext, HaramVeilForegroundService::class.java).apply {
+            appContext.startService(
+                Intent(appContext, HaramVeilForegroundService::class.java).apply {
                     action = HaramVeilForegroundService.ActionStop
                 },
             )
         }
-        context.applicationContext.stopService(Intent(context.applicationContext, VeilOverlayService::class.java))
-        ServiceHealthAlarmReceiver.cancel(context.applicationContext)
-        WorkManager.getInstance(context.applicationContext)
+        VeilOverlayController.stop(appContext)
+        ServiceHealthAlarmReceiver.cancel(appContext)
+        ServiceHealthAlarmReceiver.cancelDeferredRestart(appContext)
+        WorkManager.getInstance(appContext)
             .cancelUniqueWork(ProtectionHealthWorker.UniqueWorkName)
     }
+
+    private const val LogTag = "HaramVeilRuntime"
 }

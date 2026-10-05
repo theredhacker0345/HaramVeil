@@ -31,9 +31,11 @@ import com.haramveil.data.models.ModelImportManager
 import com.haramveil.data.models.SecurityQuestion
 import com.haramveil.data.models.TextRecognitionEngine
 import com.haramveil.data.models.VisualModelOption
+import com.haramveil.detection.mode1.UITreeScanner
 import com.haramveil.detection.mode3.OnnxBenchmarkRunner
 import com.haramveil.security.PinManager
 import com.haramveil.security.SecurityQuestionsManager
+import com.haramveil.ui.security.RequiredPinLength
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +43,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val RequiredSecurityQuestionCount = 3
 
 data class BenchmarkUiState(
     val isRunning: Boolean = false,
@@ -96,6 +100,7 @@ class OnboardingViewModel(
     private val securityQuestionsManager = SecurityQuestionsManager(applicationContext)
     private val benchmarkRunner = OnnxBenchmarkRunner(applicationContext)
     private val modelImportManager = ModelImportManager(applicationContext)
+    private val uiTreeScanner = UITreeScanner()
 
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
@@ -266,9 +271,15 @@ class OnboardingViewModel(
         pin: String,
         securityAnswers: List<Pair<SecurityQuestion, Boolean>>,
     ) {
-        withContext(Dispatchers.IO) {
-            pinManager.storePIN(pin)
+        // storePIN rejects anything that is not exactly RequiredPinLength ASCII digits, and the
+        // recovery flow needs all three answers, so reject bad input before anything is written.
+        require(pin.length == RequiredPinLength && pin.all { character -> character in '0'..'9' }) {
+            "The PIN must be exactly $RequiredPinLength digits."
         }
+        require(securityAnswers.size >= RequiredSecurityQuestionCount) {
+            "At least $RequiredSecurityQuestionCount security answers are required."
+        }
+        pinManager.storePINAsync(pin)
         securityQuestionsManager.storeConfiguredQuestions(securityAnswers)
         _uiState.update { current ->
             current.copy(
@@ -414,7 +425,7 @@ class OnboardingViewModel(
                     InstalledAppInfo(
                         packageName = packageName,
                         label = resolveInfo.loadLabel(packageManager).toString(),
-                        isHighRisk = isHighRiskPackage(packageName),
+                        isHighRisk = uiTreeScanner.isHighRiskPackage(packageName),
                     )
                 }
                 .sortedWith(
@@ -429,74 +440,6 @@ class OnboardingViewModel(
             applicationContext.packageManager.getPackageInfo(packageName, 0)
             true
         }.getOrElse { false }
-
-    private fun isHighRiskPackage(packageName: String): Boolean {
-        val normalized = packageName.lowercase()
-        val exactHighRiskPackages = setOf(
-            "com.instagram.android",
-            "com.zhiliaoapp.musically",
-            "com.android.chrome",
-            "com.google.android.apps.chrome",
-            "org.mozilla.firefox",
-            "com.sec.android.app.sbrowser",
-            "com.snapchat.android",
-            "com.twitter.android",
-            "com.xcorp.android",
-            "com.google.android.youtube",
-            "com.reddit.frontpage",
-            "com.opera.browser",
-            "com.brave.browser",
-            "com.duckduckgo.mobile.android",
-            "com.microsoft.emmx",
-            "org.telegram.messenger",
-            "com.whatsapp",
-            "com.match.bumble",
-            "com.tinder",
-            "com.hinge",
-            "com.okcupid.android",
-            "com.grindr",
-            "com.her",
-            "com.feeld",
-            "com.uc.browser",
-            "com.dolphin.mobile",
-            "com.maxthon.browser",
-            "com.yandex.browser",
-            "com.puffinbrowser",
-        )
-        val keywordMatches = listOf(
-            "browser",
-            "video",
-            "instagram",
-            "tiktok",
-            "twitter",
-            "xcorp",
-            "youtube",
-            "reddit",
-            "opera",
-            "brave",
-            "duckduckgo",
-            "telegram",
-            "whatsapp",
-            "chrome",
-            "firefox",
-            "samsunginternet",
-            "snapchat",
-            "edge",
-            "tinder",
-            "bumble",
-            "hinge",
-            "dating",
-            "match",
-            "grindr",
-            "ucbrowser",
-            "dolphin",
-            "maxthon",
-            "yandex",
-            "puffin",
-        )
-
-        return normalized in exactHighRiskPackages || keywordMatches.any { normalized.contains(it) }
-    }
 
     private fun normalizeModeSelection(
         mode1Enabled: Boolean,

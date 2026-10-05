@@ -21,6 +21,7 @@ package com.haramveil.security
 import android.app.admin.DeviceAdminReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.haramveil.service.HaramVeilProtectionController
 import com.haramveil.service.ProtectionBootstrapStore
 import com.haramveil.service.ProtectionNotificationHelper
@@ -36,22 +37,32 @@ class HaramVeilDeviceAdminReceiver : DeviceAdminReceiver() {
         context: Context,
         intent: Intent,
     ) {
-        val warningMessage = "HaramVeil protection has been disabled. Tap to re-enable."
-        ProtectionBootstrapStore(context).recordTamperEvent(
-            eventType = TamperEventTypeDeviceAdminDisabled,
-            message = warningMessage,
-        )
-        ProtectionNotificationHelper.showDeviceAdminDisabled(context)
+        // This broadcast runs in the background: prefs writes and posting must never throw here.
+        runCatching {
+            val warningMessage = "HaramVeil protection has been disabled. Tap to re-enable."
+            ProtectionBootstrapStore(context).recordTamperEvent(
+                eventType = TamperEventTypeDeviceAdminDisabled,
+                message = warningMessage,
+            )
+            ProtectionNotificationHelper.showDeviceAdminDisabled(context)
+        }.onFailure { throwable ->
+            Log.e(LogTag, "Recording the device admin disable failed.", throwable)
+        }
     }
 
     override fun onEnabled(
         context: Context,
         intent: Intent,
     ) {
-        HaramVeilProtectionController.start(context)
+        // A foreground service start from a background broadcast throws on API 31+.
+        runCatching { HaramVeilProtectionController.start(context) }
+            .onFailure { throwable ->
+                Log.e(LogTag, "Protection could not start from device admin enable.", throwable)
+            }
     }
 
     companion object {
         const val TamperEventTypeDeviceAdminDisabled = "device_admin_disabled"
+        private const val LogTag = "HaramVeilDeviceAdmin"
     }
 }

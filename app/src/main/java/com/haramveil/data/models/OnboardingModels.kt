@@ -112,53 +112,6 @@ data class SecurityQuestion(
     val prompt: String,
 )
 
-object SecurityQuestionCatalog {
-    val questions = listOf(
-        SecurityQuestion(
-            id = "karachi_childhood",
-            prompt = "Did you grow up in Karachi?",
-        ),
-        SecurityQuestion(
-            id = "mother_a",
-            prompt = "Does your mother's first name start with the letter A?",
-        ),
-        SecurityQuestion(
-            id = "school_before_six",
-            prompt = "Did you attend school before age 6?",
-        ),
-        SecurityQuestion(
-            id = "older_sibling",
-            prompt = "Do you have an older sibling?",
-        ),
-        SecurityQuestion(
-            id = "left_handed",
-            prompt = "Are you left-handed?",
-        ),
-        SecurityQuestion(
-            id = "first_pet",
-            prompt = "Did your family ever keep a pet at home?",
-        ),
-        SecurityQuestion(
-            id = "same_city",
-            prompt = "Do you still live in the same city where you were born?",
-        ),
-        SecurityQuestion(
-            id = "memorized_surah",
-            prompt = "Did you memorize a surah before age 12?",
-        ),
-        SecurityQuestion(
-            id = "first_bike",
-            prompt = "Did you learn to ride a bicycle before age 10?",
-        ),
-        SecurityQuestion(
-            id = "boarding_school",
-            prompt = "Did you ever study at a boarding school or hostel?",
-        ),
-    )
-
-    fun byId(id: String): SecurityQuestion? = questions.firstOrNull { it.id == id }
-}
-
 data class StoredOnboardingSnapshot(
     val onboardingComplete: Boolean,
     val benchmarkResult: BenchmarkResult?,

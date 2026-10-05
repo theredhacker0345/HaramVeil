@@ -32,7 +32,9 @@ import androidx.work.WorkManager
 import com.haramveil.accessibility.isHaramVeilAccessibilityServiceEnabled
 import com.haramveil.data.local.StatsCleanupWorker
 import com.haramveil.overlay.VeilOverlayController
+import com.haramveil.utils.DebugLog
 import com.haramveil.utils.RootAccessHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,7 +72,7 @@ class HaramVeilForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        if (!bootstrapStore.isBootstrapReady() || !bootstrapStore.isProtectionEnabled()) {
+        if (!bootstrapStore.isBootstrapReady()) {
             intentionalStopRequested = true
             stopRuntime(cancelRecovery = true)
             stopSelf()
@@ -96,6 +98,22 @@ class HaramVeilForegroundService : Service() {
         startHeartbeatLoop()
         ServiceHealthAlarmReceiver.schedule(applicationContext)
 
+        // Catch up on a safe window whose deadline passed while this service was dead.
+        // Credential-protected settings are unreadable before unlock, so the alarm and the
+        // worker own that window until then.
+        if (isUserUnlocked()) {
+            catchUpOnSafeWindow()
+        }
+
+        if (!bootstrapStore.isProtectionEnabled()) {
+            // Keep the health alarm while a safe window is still open so the deadline is
+            // enforced even if this process dies in the meantime.
+            intentionalStopRequested = true
+            stopRuntime(cancelRecovery = bootstrapStore.isSafeWindowActive())
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         if (isUserUnlocked()) {
             enterUnlockedRuntimeIfNeeded()
         }
@@ -119,6 +137,20 @@ class HaramVeilForegroundService : Service() {
             while (isActive) {
                 bootstrapStore.updateServiceHeartbeat()
                 delay(HeartbeatIntervalMs)
+            }
+        }
+    }
+
+    private fun catchUpOnSafeWindow() {
+        serviceScope.launch {
+            try {
+                resumeProtectionIfPauseElapsed(applicationContext)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                DebugLog.w(applicationContext, LogTag) {
+                    "Safe-window catch-up failed: ${error.javaClass.simpleName}: ${error.message}"
+                }
             }
         }
     }
@@ -159,7 +191,15 @@ class HaramVeilForegroundService : Service() {
             WorkManager.getInstance(applicationContext)
                 .cancelUniqueWork(StatsCleanupWorker.UniqueWorkName)
         }
-        applicationContext.stopService(Intent(applicationContext, com.haramveil.overlay.VeilOverlayService::class.java))
+        // stopForeground() has to run before the veil service is stopped: Android 12+ only
+        // allows one or two background foreground-service starts per ten seconds, and
+        // starting the veil runtime right after this service drops out of the foreground
+        // can trip that limit.
+        stopForegroundCompat()
+        VeilOverlayController.stop(applicationContext)
+    }
+
+    private fun stopForegroundCompat() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -210,6 +250,7 @@ class HaramVeilForegroundService : Service() {
         const val ActionStart = "com.haramveil.service.action.START"
         const val ActionStop = "com.haramveil.service.action.STOP"
         const val HeartbeatIntervalMs = 30_000L
+        private const val LogTag = "HaramVeilRuntime"
         private const val SamsungWakeLockTag = "HaramVeil::SamsungServiceKeepAlive"
         private const val SamsungWakeLockTimeoutMs = 10 * 60 * 1_000L
     }

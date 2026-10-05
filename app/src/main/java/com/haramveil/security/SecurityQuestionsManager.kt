@@ -21,10 +21,16 @@ package com.haramveil.security
 import android.content.Context
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
+import at.favre.lib.crypto.bcrypt.BCrypt
 import com.haramveil.R
 import com.haramveil.data.local.OnboardingPreferencesRepository
 import com.haramveil.data.models.SecurityQuestion
 import com.haramveil.data.models.StoredSecurityQuestion
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
 class SecurityQuestionsManager(
@@ -48,11 +54,13 @@ class SecurityQuestionsManager(
     suspend fun storeConfiguredQuestions(
         answers: List<Pair<SecurityQuestion, Boolean>>,
     ) {
-        val storedQuestions = answers.take(MaxConfiguredQuestions).map { (question, answer) ->
-            StoredSecurityQuestion(
-                questionId = question.id,
-                answerHash = hashAnswer(question.id, answer),
-            )
+        val storedQuestions = withContext(Dispatchers.Default) {
+            answers.take(MaxConfiguredQuestions).map { (question, answer) ->
+                StoredSecurityQuestion(
+                    questionId = question.id,
+                    answerHash = hashAnswer(question.id, answer),
+                )
+            }
         }
         onboardingPreferencesRepository.saveSecurityQuestions(storedQuestions)
         resetFailedAttempts()
@@ -66,14 +74,16 @@ class SecurityQuestionsManager(
             return
         }
 
-        val updatedQuestions = existingQuestions.mapIndexed { index, storedQuestion ->
-            val updatedAnswer = answers[index]
-            if (updatedAnswer == null) {
-                storedQuestion
-            } else {
-                storedQuestion.copy(
-                    answerHash = hashAnswer(storedQuestion.questionId, updatedAnswer),
-                )
+        val updatedQuestions = withContext(Dispatchers.Default) {
+            existingQuestions.mapIndexed { index, storedQuestion ->
+                val updatedAnswer = answers[index]
+                if (updatedAnswer == null) {
+                    storedQuestion
+                } else {
+                    storedQuestion.copy(
+                        answerHash = hashAnswer(storedQuestion.questionId, updatedAnswer),
+                    )
+                }
             }
         }
         onboardingPreferencesRepository.saveSecurityQuestions(updatedQuestions)
@@ -93,10 +103,24 @@ class SecurityQuestionsManager(
             return false
         }
 
-        return storedQuestions.take(MaxConfiguredQuestions).allIndexed { index, storedQuestion ->
-            val attemptedAnswer = attempts[index] ?: return@allIndexed false
-            hashAnswer(storedQuestion.questionId, attemptedAnswer) == storedQuestion.answerHash
+        val verificationResults = withContext(Dispatchers.Default) {
+            storedQuestions.take(MaxConfiguredQuestions).mapIndexed { index, storedQuestion ->
+                verifyAnswer(storedQuestion, attempts[index])
+            }
         }
+
+        // Every configured answer is always evaluated so a mismatch cannot leak how many matched.
+        if (verificationResults.any { result -> !result.matched }) {
+            return false
+        }
+
+        if (verificationResults.any { result -> result.needsUpgrade }) {
+            upgradeLegacyHashes(
+                storedQuestions = storedQuestions.take(MaxConfiguredQuestions),
+                attempts = attempts,
+            )
+        }
+        return true
     }
 
     suspend fun configuredQuestions(): List<SecurityQuestion> {
@@ -206,19 +230,92 @@ class SecurityQuestionsManager(
         questionId: String,
         answer: Boolean,
     ): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest("$questionId:${answer.toString().lowercase()}".toByteArray())
-            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        withAnswerChars(answerPreimage(questionId, answer)) { answerChars ->
+            BCrypt.withDefaults().hashToString(BcryptCost, answerChars)
+        }
 
-    private inline fun <T> List<T>.allIndexed(
-        predicate: (Int, T) -> Boolean,
-    ): Boolean {
-        forEachIndexed { index, item ->
-            if (!predicate(index, item)) {
-                return false
+    private fun verifyAnswer(
+        storedQuestion: StoredSecurityQuestion,
+        attemptedAnswer: Boolean?,
+    ): AnswerVerification {
+        // A missing attempt still spends the same budget so an absent answer is not distinguishable.
+        val answer = attemptedAnswer ?: false
+        if (isBcryptHash(storedQuestion.answerHash)) {
+            val verified = withAnswerChars(answerPreimage(storedQuestion.questionId, answer)) { answerChars ->
+                BCrypt.verifyer().verify(answerChars, storedQuestion.answerHash).verified
+            }
+            return AnswerVerification(matched = verified, needsUpgrade = false)
+        }
+
+        val legacyDigest = legacyAnswerDigest(storedQuestion.questionId, answer)
+        val matched = MessageDigest.isEqual(
+            legacyDigest.toByteArray(StandardCharsets.UTF_8),
+            storedQuestion.answerHash.toByteArray(StandardCharsets.UTF_8),
+        )
+        // Spend the bcrypt budget too so legacy entries cannot be told apart by timing.
+        withAnswerChars(answerPreimage(storedQuestion.questionId, answer)) { answerChars ->
+            BCrypt.withDefaults().hashToString(BcryptCost, answerChars)
+        }
+        return AnswerVerification(matched = matched, needsUpgrade = matched)
+    }
+
+    // Legacy unsalted SHA-256 digests stay verifiable and are replaced with bcrypt on first success.
+    private suspend fun upgradeLegacyHashes(
+        storedQuestions: List<StoredSecurityQuestion>,
+        attempts: Map<Int, Boolean>,
+    ) {
+        if (storedQuestions.indices.none { index -> !isBcryptHash(storedQuestions[index].answerHash) }) {
+            return
+        }
+
+        val upgradedQuestions = withContext(Dispatchers.Default) {
+            storedQuestions.mapIndexed { index, storedQuestion ->
+                val verifiedAnswer = attempts[index]
+                if (verifiedAnswer == null || isBcryptHash(storedQuestion.answerHash)) {
+                    storedQuestion
+                } else {
+                    storedQuestion.copy(
+                        answerHash = hashAnswer(storedQuestion.questionId, verifiedAnswer),
+                    )
+                }
             }
         }
-        return true
+
+        try {
+            onboardingPreferencesRepository.saveSecurityQuestions(upgradedQuestions)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            Log.e(LogTag, "Recovery answer upgrade to bcrypt failed; legacy digests stay active.", throwable)
+        }
+    }
+
+    private fun answerPreimage(
+        questionId: String,
+        answer: Boolean,
+    ): String = "$questionId:${answer.toString().lowercase()}"
+
+    private fun legacyAnswerDigest(
+        questionId: String,
+        answer: Boolean,
+    ): String = MessageDigest.getInstance("SHA-256")
+        .digest(answerPreimage(questionId, answer).toByteArray(StandardCharsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+
+    // bcrypt hashes are 60-character "$2..." strings; anything else is a legacy digest.
+    private fun isBcryptHash(storedHash: String): Boolean =
+        storedHash.length == BcryptHashLength && storedHash.startsWith(BcryptPrefix)
+
+    private inline fun <T> withAnswerChars(
+        preimage: String,
+        block: (CharArray) -> T,
+    ): T {
+        val answerChars = preimage.toCharArray()
+        return try {
+            block(answerChars)
+        } finally {
+            answerChars.fill('\u0000')
+        }
     }
 
     private companion object {
@@ -230,6 +327,10 @@ class SecurityQuestionsManager(
         private const val QuestionLockoutBootCountKey = "question_lockout_boot_count"
         private const val MaxFailedAttempts = 3
         private const val LockoutDurationMs = 20 * 60 * 1_000L
+        private const val BcryptCost = 12
+        private const val BcryptHashLength = 60
+        private const val BcryptPrefix = "\$2"
+        private const val LogTag = "HaramVeilRecovery"
 
         val QuestionDefinitions = listOf(
             QuestionDefinition(
@@ -279,4 +380,9 @@ class SecurityQuestionsManager(
 private data class QuestionDefinition(
     val id: String,
     val promptResId: Int,
+)
+
+private data class AnswerVerification(
+    val matched: Boolean,
+    val needsUpgrade: Boolean,
 )

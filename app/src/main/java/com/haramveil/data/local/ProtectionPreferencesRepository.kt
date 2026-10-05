@@ -65,20 +65,26 @@ class ProtectionPreferencesRepository(
                 domainBlocklist = (preferences[HaramVeilPreferenceKeys.DomainBlocklist]
                     ?: DefaultDomainBlocklist.entries.toSet())
                     .sorted(),
-                frameSkipIntervalMs = preferences[HaramVeilPreferenceKeys.FrameSkipIntervalMs]
-                    ?: HaramVeilPreferenceKeys.DefaultFrameSkipIntervalMs,
-                mode3InferenceIntervalMs = preferences[HaramVeilPreferenceKeys.Mode3InferenceIntervalMs]
-                    ?: HaramVeilPreferenceKeys.DefaultMode3InferenceIntervalMs,
-                lockdownDurationMs = preferences[HaramVeilPreferenceKeys.LockdownDurationMs]
-                    ?: HaramVeilPreferenceKeys.DefaultLockdownDurationMs,
+                frameSkipIntervalMs = (preferences[HaramVeilPreferenceKeys.FrameSkipIntervalMs]
+                    ?: HaramVeilPreferenceKeys.DefaultFrameSkipIntervalMs)
+                    .coerceIn(MinFrameSkipIntervalMs, MaxFrameSkipIntervalMs),
+                mode3InferenceIntervalMs = (preferences[HaramVeilPreferenceKeys.Mode3InferenceIntervalMs]
+                    ?: HaramVeilPreferenceKeys.DefaultMode3InferenceIntervalMs)
+                    .coerceIn(MinMode3InferenceIntervalMs, MaxMode3InferenceIntervalMs),
+                lockdownDurationMs = (preferences[HaramVeilPreferenceKeys.LockdownDurationMs]
+                    ?: HaramVeilPreferenceKeys.DefaultLockdownDurationMs)
+                    .coerceIn(MinLockdownDurationMs, MaxLockdownDurationMs),
                 statsRetentionDays = (preferences[HaramVeilPreferenceKeys.StatsRetentionDays]
                     ?: HaramVeilPreferenceKeys.DefaultStatsRetentionDays.toLong())
+                    .coerceIn(MinStatsRetentionDays, MaxStatsRetentionDays)
                     .toInt(),
                 topCapturePercent = (preferences[HaramVeilPreferenceKeys.TopCapturePercent]
                     ?: HaramVeilPreferenceKeys.DefaultTopCapturePercent.toLong())
+                    .coerceIn(MinTopCapturePercent, MaxTopCapturePercent)
                     .toInt(),
                 middleCapturePercent = (preferences[HaramVeilPreferenceKeys.MiddleCapturePercent]
                     ?: HaramVeilPreferenceKeys.DefaultMiddleCapturePercent.toLong())
+                    .coerceIn(MinMiddleCapturePercent, MaxMiddleCapturePercent)
                     .toInt(),
                 accessibilitySettingsPromptShown = preferences[HaramVeilPreferenceKeys.AccessibilitySettingsPromptShown]
                     ?: false,
@@ -191,28 +197,28 @@ class ProtectionPreferencesRepository(
     suspend fun saveFrameSkipIntervalMs(intervalMs: Long) {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.FrameSkipIntervalMs] =
-                intervalMs.coerceIn(minimumValue = 250L, maximumValue = 2_000L)
+                intervalMs.coerceIn(minimumValue = MinFrameSkipIntervalMs, maximumValue = MaxFrameSkipIntervalMs)
         }
     }
 
     suspend fun saveMode3InferenceIntervalMs(intervalMs: Long) {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.Mode3InferenceIntervalMs] =
-                intervalMs.coerceIn(minimumValue = 1_000L, maximumValue = 2_000L)
+                intervalMs.coerceIn(minimumValue = MinMode3InferenceIntervalMs, maximumValue = MaxMode3InferenceIntervalMs)
         }
     }
 
     suspend fun saveLockdownDurationMs(durationMs: Long) {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.LockdownDurationMs] =
-                durationMs.coerceIn(minimumValue = 5 * 60 * 1_000L, maximumValue = 24 * 60 * 60 * 1_000L)
+                durationMs.coerceIn(minimumValue = MinLockdownDurationMs, maximumValue = MaxLockdownDurationMs)
         }
     }
 
     suspend fun saveStatsRetentionDays(retentionDays: Int) {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.StatsRetentionDays] =
-                retentionDays.coerceIn(minimumValue = 30, maximumValue = 365).toLong()
+                retentionDays.toLong().coerceIn(minimumValue = MinStatsRetentionDays, maximumValue = MaxStatsRetentionDays)
         }
     }
 
@@ -222,9 +228,9 @@ class ProtectionPreferencesRepository(
     ) {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.TopCapturePercent] =
-                topCapturePercent.coerceIn(minimumValue = 10, maximumValue = 45).toLong()
+                topCapturePercent.coerceIn(minimumValue = MinTopCapturePercent, maximumValue = MaxTopCapturePercent).toLong()
             preferences[HaramVeilPreferenceKeys.MiddleCapturePercent] =
-                middleCapturePercent.coerceIn(minimumValue = 20, maximumValue = 50).toLong()
+                middleCapturePercent.coerceIn(minimumValue = MinMiddleCapturePercent, maximumValue = MaxMiddleCapturePercent).toLong()
         }
     }
 
@@ -259,6 +265,22 @@ class ProtectionPreferencesRepository(
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.BatteryOptimizationCompleted] = completed
         }
+    }
+
+    // Bounds shared by the read and the save paths so a stored value can never drift out of range.
+    private companion object {
+        const val MinFrameSkipIntervalMs = 250L
+        const val MaxFrameSkipIntervalMs = 2_000L
+        const val MinMode3InferenceIntervalMs = 1_000L
+        const val MaxMode3InferenceIntervalMs = 2_000L
+        const val MinLockdownDurationMs = 5 * 60 * 1_000L
+        const val MaxLockdownDurationMs = 24 * 60 * 60 * 1_000L
+        const val MinStatsRetentionDays = 30L
+        const val MaxStatsRetentionDays = 365L
+        const val MinTopCapturePercent = 10L
+        const val MaxTopCapturePercent = 45L
+        const val MinMiddleCapturePercent = 20L
+        const val MaxMiddleCapturePercent = 50L
     }
 }
 

@@ -29,6 +29,7 @@ import com.haramveil.data.local.StatsRepository
 import com.haramveil.data.models.ProtectionSettings
 import com.haramveil.detection.mode1.MatchSource
 import com.haramveil.detection.mode1.RiskLevel
+import com.haramveil.detection.mode1.ScanResult
 import com.haramveil.detection.mode2.Mode2Processor
 import com.haramveil.detection.mode1.UITreeScanner
 import com.haramveil.detection.mode3.Mode3Processor
@@ -42,11 +43,14 @@ import com.haramveil.utils.DebugLog
 import com.haramveil.utils.Mode1WakeRequest
 import com.haramveil.utils.ThrottleManager
 import com.haramveil.utils.ThrottledScanTrigger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -60,6 +64,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     private lateinit var bootstrapStore: ProtectionBootstrapStore
     private val protectionSettingsState = MutableStateFlow(ProtectionSettings())
     private var collectorsStarted = false
+    private var collectorJobs: List<Job> = emptyList()
     private lateinit var throttleManager: ThrottleManager
     private lateinit var mode2Processor: Mode2Processor
     private lateinit var mode3Processor: Mode3Processor
@@ -69,6 +74,15 @@ class HaramVeilAccessibilityService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
+        // A repeat onCreate means the service was rebound: tear down the previous
+        // processors and throttle collector before building new ones, otherwise the
+        // orphaned processors keep consuming DetectionBus forever.
+        if (::throttleManager.isInitialized) {
+            throttleManager.stop()
+        }
+        destroyProcessors()
+        stopCollectors()
+        collectorsStarted = false
         protectionPreferencesRepository = ProtectionPreferencesRepository(applicationContext)
         appLockdownManager = AppLockdownManager(applicationContext)
         statsRepository = StatsRepository.getInstance(applicationContext)
@@ -98,6 +112,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         serviceInfo = serviceInfo.apply {
+            canRetrieveWindowContent = true
             eventTypes = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
             flags = flags or
                 AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
@@ -113,15 +128,26 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) {
-            return
-        }
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
-            event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        val windowEvent = event ?: return
+        if (windowEvent.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+            windowEvent.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         ) {
             return
         }
 
+        // A throw from an event callback tears the whole service down.
+        runCatching { handleAccessibilityEvent(windowEvent) }
+            .onFailure { error ->
+                if (error is CancellationException) {
+                    throw error
+                }
+                DebugLog.w(applicationContext, LogTag) {
+                    "Accessibility event handling failed: ${error.javaClass.simpleName}"
+                }
+            }
+    }
+
+    private fun handleAccessibilityEvent(event: AccessibilityEvent) {
         val currentSettings = protectionSettingsState.value
         if (!currentSettings.protectionEnabled) {
             return
@@ -135,6 +161,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
 
         val isBrowserPackage = uiTreeScanner.isBrowserPackage(packageName)
         val isHighRiskPackage = uiTreeScanner.isHighRiskPackage(packageName)
+        val isMonitoredPackage = packageName in currentSettings.monitoredPackages
+        val isMode3ForcedPackage = packageName in currentSettings.mode3ForcedPackages
 
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             DetectionBus.publishWindowStateObserved(
@@ -165,18 +193,16 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             }
         }
 
-        if (!currentSettings.mode1Enabled && !isBrowserPackage) {
-            // Mode 1 is off for this app, but Mode 3 (visual) may still need to run for
-            // monitored / browser / high-risk apps, so don't bail out early in that case.
-            val mode3Eligible = currentSettings.mode3Enabled &&
-                (isBrowserPackage || isHighRiskPackage || packageName in currentSettings.monitoredPackages)
-            if (!mode3Eligible) {
-                return
-            }
+        val isScannablePackage = isBrowserPackage || isHighRiskPackage ||
+            isMonitoredPackage || isMode3ForcedPackage
+        if (!isScannablePackage) {
+            return
         }
 
-        // Always scan browsers and high-risk apps, even if not in monitored packages list
-        if (!isBrowserPackage && !isHighRiskPackage && packageName !in currentSettings.monitoredPackages) {
+        val anyModeEnabled = currentSettings.mode1Enabled ||
+            currentSettings.mode2Enabled ||
+            currentSettings.mode3Enabled
+        if (!anyModeEnabled) {
             return
         }
 
@@ -191,14 +217,32 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        mode2Processor.destroy()
-        mode3Processor.destroy()
+        stopCollectors()
+        if (::throttleManager.isInitialized) {
+            throttleManager.stop()
+        }
+        destroyProcessors()
+        collectorsStarted = false
         serviceScope.cancel()
         super.onDestroy()
     }
 
+    private fun destroyProcessors() {
+        if (::mode2Processor.isInitialized) {
+            runCatching { mode2Processor.destroy() }
+        }
+        if (::mode3Processor.isInitialized) {
+            runCatching { mode3Processor.destroy() }
+        }
+    }
+
+    private fun stopCollectors() {
+        collectorJobs.forEach { job -> runCatching { job.cancel() } }
+        collectorJobs = emptyList()
+    }
+
     private fun startCollectors() {
-        serviceScope.launch(dispatcherProvider.io) {
+        val settingsJob = serviceScope.launch(dispatcherProvider.io) {
             protectionPreferencesRepository.settingsFlow.collectLatest { settings ->
                 protectionSettingsState.value = settings
                 val effectiveFrameSkipMs = if (settings.strictModeEnabled) {
@@ -220,11 +264,21 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             }
         }
 
-        serviceScope.launch(dispatcherProvider.default) {
-            throttleManager.scanTriggers.collectLatest { trigger ->
-                processScanTrigger(trigger)
+        val scanTriggerJob = serviceScope.launch(dispatcherProvider.default) {
+            throttleManager.scanTriggers.collect { trigger ->
+                runCatching { processScanTrigger(trigger) }
+                    .onFailure { error ->
+                        if (error is CancellationException) {
+                            throw error
+                        }
+                        DebugLog.w(applicationContext, LogTag) {
+                            "Mode 1 scan trigger failed for ${trigger.packageName}: ${error.javaClass.simpleName}"
+                        }
+                    }
             }
         }
+
+        collectorJobs = listOf(settingsJob, scanTriggerJob)
     }
 
     private suspend fun processScanTrigger(
@@ -238,7 +292,35 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             val isBrowserApp = trigger.isBrowser
             val isMonitoredApp = isBrowserApp || trigger.packageName in currentSettings.monitoredPackages
             val isMode3Forced = trigger.packageName in currentSettings.mode3ForcedPackages
-            val mode3Eligible = isBrowserApp || isHighRiskApp || trigger.packageName in currentSettings.monitoredPackages
+            val mode3Eligible = isBrowserApp || isHighRiskApp || isMode3Forced ||
+                trigger.packageName in currentSettings.monitoredPackages
+            val wakeMode2 = currentSettings.mode2Enabled
+            val wakeMode3 = currentSettings.mode3Enabled && mode3Eligible
+
+            if (!currentSettings.mode1Enabled) {
+                // Mode 1 is off: no text scan, no stats, no veil, but Mode 2/3 still
+                // need the wake-up so their own detection pipelines keep running.
+                if (wakeMode2 || wakeMode3) {
+                    DebugLog.d(applicationContext, LogTag) {
+                        "Mode 1 disabled; skipping text scan for ${trigger.packageName}."
+                    }
+                    DetectionBus.publishMode1Triggered(
+                        Mode1WakeRequest(
+                            scanResult = ScanResult(
+                                triggered = false,
+                                matchedKeyword = null,
+                                matchSource = null,
+                                packageName = trigger.packageName,
+                                riskLevel = RiskLevel.LOW,
+                            ),
+                            wakeMode2 = wakeMode2,
+                            wakeMode3 = wakeMode3,
+                        ),
+                    )
+                }
+                return
+            }
+
             val scanResult = uiTreeScanner.scan(
                 rootNode = trigger.rootNode,
                 packageName = trigger.packageName,
@@ -248,9 +330,6 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                 isBrowser = isBrowserApp,
                 isHighRisk = isHighRiskApp,
             )
-
-            val wakeMode3 = currentSettings.mode3Enabled && mode3Eligible
-            val wakeMode2 = currentSettings.mode2Enabled
 
             // When Mode 1's text/keyword scan did not match, we still need to wake the
             // visual (Mode 3) pipeline for eligible apps so purely graphical adult content
@@ -293,22 +372,12 @@ class HaramVeilAccessibilityService : AccessibilityService() {
             )
 
             when (scanResult.riskLevel) {
-                RiskLevel.HIGH -> {
-                    // Always show veil immediately for HIGH risk content
-                    DetectionBus.publishVeilRequested(
-                        packageName = scanResult.packageName,
-                        triggerMode = DetectionTriggerMode.MODE_1,
-                        matchDetails = matchDetails,
-                    )
-                }
+                // Always show veil immediately for HIGH risk content
+                RiskLevel.HIGH -> publishMode1Veil(scanResult.packageName, matchDetails)
 
-                RiskLevel.MEDIUM -> {
-                    // Always show veil for medium-risk detection
-                    DetectionBus.publishVeilRequested(
-                        packageName = scanResult.packageName,
-                        triggerMode = DetectionTriggerMode.MODE_1,
-                        matchDetails = matchDetails,
-                    )
+                // Monitored-app presence alone only veils in strict mode
+                RiskLevel.MEDIUM -> if (currentSettings.strictModeEnabled) {
+                    publishMode1Veil(scanResult.packageName, matchDetails)
                 }
 
                 RiskLevel.LOW -> Unit
@@ -328,21 +397,40 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     ): ThrottledScanTrigger? {
         val activeRoot = rootInActiveWindow ?: return null
         val rootSnapshot = AccessibilityNodeInfo.obtain(activeRoot)
-        val isBrowser = uiTreeScanner.isBrowserPackage(packageName)
-        val isHighRisk = uiTreeScanner.isHighRiskPackage(packageName)
-        val nodeHash = uiTreeScanner.computeNodeHash(rootSnapshot, isBrowser, isHighRisk)
-        return ThrottledScanTrigger(
-            isBrowser = isBrowser,
-            isHighRisk = isHighRisk,
+        try {
+            val isBrowser = uiTreeScanner.isBrowserPackage(packageName)
+            val isHighRisk = uiTreeScanner.isHighRiskPackage(packageName)
+            val nodeHash = uiTreeScanner.computeNodeHash(rootSnapshot, isBrowser, isHighRisk)
+            return ThrottledScanTrigger(
+                isBrowser = isBrowser,
+                isHighRisk = isHighRisk,
+                packageName = packageName,
+                eventType = eventType,
+                nodeHash = nodeHash,
+                rootNode = rootSnapshot,
+            )
+        } catch (error: Throwable) {
+            runCatching { rootSnapshot.recycle() }
+            DebugLog.w(applicationContext, LogTag) {
+                "Failed to snapshot window for $packageName: ${error.javaClass.simpleName}"
+            }
+            return null
+        }
+    }
+
+    private fun publishMode1Veil(
+        packageName: String,
+        matchDetails: String,
+    ) {
+        DetectionBus.publishVeilRequested(
             packageName = packageName,
-            eventType = eventType,
-            nodeHash = nodeHash,
-            rootNode = rootSnapshot,
+            triggerMode = DetectionTriggerMode.MODE_1,
+            matchDetails = matchDetails,
         )
     }
 
     private fun buildMatchDetails(
-        scanResult: com.haramveil.detection.mode1.ScanResult,
+        scanResult: ScanResult,
         isHighRiskApp: Boolean,
         isMonitoredApp: Boolean,
     ): String {

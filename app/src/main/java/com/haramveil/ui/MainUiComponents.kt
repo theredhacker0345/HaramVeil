@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import coil.compose.AsyncImage
 import com.haramveil.data.models.InstalledAppInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun HaramVeilScreenBackground(
@@ -339,9 +341,11 @@ fun InstalledAppIcon(
 ) {
     val context = LocalContext.current
     val iconDrawable by produceState<Drawable?>(initialValue = null, app.packageName) {
-        value = runCatching {
-            context.packageManager.getApplicationIcon(app.packageName)
-        }.getOrNull()
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                context.packageManager.getApplicationIcon(app.packageName)
+            }.getOrNull()
+        }
     }
 
     if (iconDrawable != null) {

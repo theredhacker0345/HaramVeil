@@ -32,6 +32,7 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -48,19 +49,22 @@ import com.haramveil.security.AppLockdownManager
 import com.haramveil.service.ProtectionNotificationHelper
 import com.haramveil.utils.DetectionBus
 import com.haramveil.utils.DetectionEvent
+import com.haramveil.utils.DetectionTriggerMode
 import com.haramveil.utils.DispatcherProvider
 import com.haramveil.utils.DebugLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 class VeilOverlayService : Service() {
@@ -75,12 +79,21 @@ class VeilOverlayService : Service() {
 
     private var collectorsStarted = false
     private var overlayViewHolder: OverlayViewHolder? = null
+    private var isOverlayAttached = false
+    private var overlayRemovalJob: Job? = null
+    private var veilGeneration = 0
     private var protectionJob: Job? = null
     private var dismissFallbackJob: Job? = null
     private var previewDismissJob: Job? = null
     private var activeRequest: DetectionEvent.VeilRequested? = null
     private var navigatingHomeFromVeil = false
     private var minimumVeilDisplayUntilMs = 0L
+    private var homePackagesCache: Set<String>? = null
+    private var homePackagesCachedAtElapsedMs = 0L
+
+    // Subscription handshake: the collector is registered UNDISPATCHED, so every event
+    // delivered while this is still false came from the SharedFlow replay cache.
+    private val collectorSubscribedLive = AtomicBoolean(false)
 
     override fun onCreate() {
         super.onCreate()
@@ -115,6 +128,8 @@ class VeilOverlayService : Service() {
 
     override fun onDestroy() {
         dismissFallbackJob?.cancel()
+        previewDismissJob?.cancel()
+        overlayRemovalJob?.cancel()
         protectionJob?.cancel()
         removeOverlayImmediately()
         serviceScope.cancel()
@@ -122,28 +137,70 @@ class VeilOverlayService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Subscribes to [DetectionBus.events] with a handshake instead of `drop(1)`.
+     *
+     * `drop(1)` was meant to skip the replayed event, but the replay cache is empty on a
+     * cold start, so it swallowed the first LIVE VeilRequested and the veil never appeared.
+     * With `CoroutineStart.UNDISPATCHED` the subscription (and its replay-cache drain) is
+     * finished before `launch` returns; everything delivered before [collectorSubscribedLive]
+     * flips is replay cache and nothing after it can be lost.
+     */
     private fun startCollectors() {
-        serviceScope.launch {
-            DetectionBus.events.drop(1).collect { event ->
-                when (event) {
-                    is DetectionEvent.VeilRequested -> handleVeilRequested(event)
-                    is DetectionEvent.WindowStateObserved -> handleWindowStateObserved(event)
-                    else -> Unit
-                }
+        serviceScope.launch(CoroutineStart.UNDISPATCHED) {
+            DetectionBus.events.collect { event ->
+                val fromReplayCache = !collectorSubscribedLive.get()
+                guardEventHandling(event, fromReplayCache)
+            }
+        }
+        collectorSubscribedLive.set(true)
+    }
+
+    private fun guardEventHandling(
+        event: DetectionEvent,
+        fromReplayCache: Boolean,
+    ) {
+        // A throw from inside collect kills the whole collector (all protection dead) and
+        // a throw from a SupervisorJob child crashes the process, so both are contained here.
+        try {
+            when (event) {
+                is DetectionEvent.VeilRequested -> handleVeilRequested(event, fromReplayCache)
+                is DetectionEvent.WindowStateObserved -> handleWindowStateObserved(event, fromReplayCache)
+                else -> Unit
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            DebugLog.w(applicationContext, LogTag) {
+                "Detection event ${event::class.simpleName} failed: ${error.javaClass.simpleName}: ${error.message}"
             }
         }
     }
 
     private fun handleVeilRequested(
         request: DetectionEvent.VeilRequested,
+        fromReplayCache: Boolean = false,
     ) {
+        if (fromReplayCache) {
+            DebugLog.i(applicationContext, LogTag) {
+                "Handling replayed veil request for ${request.packageName} from the detection bus cache."
+            }
+        }
         activeRequest = request
         showVeil(request)
         protectionJob?.cancel()
         dismissFallbackJob?.cancel()
         previewDismissJob?.cancel()
         protectionJob = backgroundScope.launch {
-            engageProtection(request)
+            try {
+                engageProtection(request)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                DebugLog.w(applicationContext, LogTag) {
+                    "Protection engagement for ${request.packageName} failed: ${error.javaClass.simpleName}: ${error.message}"
+                }
+            }
         }
         dismissFallbackJob = serviceScope.launch {
             delay(FallbackDismissDelayMs)
@@ -155,8 +212,12 @@ class VeilOverlayService : Service() {
 
     private fun handleWindowStateObserved(
         event: DetectionEvent.WindowStateObserved,
+        fromReplayCache: Boolean = false,
     ) {
         val currentRequest = activeRequest ?: return
+        if (fromReplayCache) {
+            return
+        }
         if (event.eventType != android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             return
         }
@@ -224,6 +285,11 @@ class VeilOverlayService : Service() {
 
         minimumVeilDisplayUntilMs = System.currentTimeMillis() + MinimumVeilDisplayDurationMs
 
+        // A fade-out that is still in flight must never tear down this freshly shown veil.
+        overlayRemovalJob?.cancel()
+        overlayRemovalJob = null
+        veilGeneration += 1
+
         val passage = veilContentRepository.randomPassage()
         val existingViewHolder = overlayViewHolder
         if (existingViewHolder == null) {
@@ -234,14 +300,17 @@ class VeilOverlayService : Service() {
             createdViewHolder.root.alpha = 0f
             try {
                 windowManager.addView(createdViewHolder.root, overlayLayoutParams())
+                // Only a window that is really attached counts as attachable.
+                isOverlayAttached = true
             } catch (e: Exception) {
                 // WindowManager.BadTokenException occurs if the user revoked the
-                // SYSTEM_ALERT_WINDOW permission after onboarding. Clean up and
-                // post a notification prompting the user to re-grant it.
-                com.haramveil.utils.DebugLog.w(applicationContext, "VeilOverlay") {
+                // SYSTEM_ALERT_WINDOW permission after onboarding. Release the holder
+                // (never attached, so nothing to remove from the window manager) and
+                // prompt the user to re-grant the permission.
+                DebugLog.w(applicationContext, LogTag) {
                     "addView failed (overlay permission may be revoked): ${e.message}"
                 }
-                overlayViewHolder = null
+                removeOverlayImmediately()
                 activeRequest = null
                 ProtectionNotificationHelper.showAccessibilityReenablePrompt(this)
                 return
@@ -264,7 +333,7 @@ class VeilOverlayService : Service() {
     private fun showPreviewOverlay() {
         val request = DetectionEvent.VeilRequested(
             packageName = packageName,
-            triggerMode = com.haramveil.utils.DetectionTriggerMode.MODE_1,
+            triggerMode = DetectionTriggerMode.MODE_1,
             matchDetails = "Preview only",
         )
         activeRequest = request
@@ -281,6 +350,14 @@ class VeilOverlayService : Service() {
         }
     }
 
+    /**
+     * Fades the veil out and removes it from a scope coroutine instead of `withEndAction`.
+     *
+     * `withEndAction` let two dismissals queue two end actions on the same view, so the
+     * second one called `removeViewImmediate` on an already detached view and threw.
+     * [overlayRemovalJob] plus [veilGeneration] make sure only the newest dismissal can
+     * remove anything.
+     */
     private fun dismissVeil() {
         val viewHolder = overlayViewHolder ?: run {
             activeRequest = null
@@ -289,22 +366,44 @@ class VeilOverlayService : Service() {
 
         dismissFallbackJob?.cancel()
         previewDismissJob?.cancel()
-        viewHolder.root.animate()
+        overlayRemovalJob?.cancel()
+
+        val rootView = viewHolder.root
+        rootView.animate().cancel()
+        veilGeneration += 1
+        val removalGeneration = veilGeneration
+        rootView.animate()
             .alpha(0f)
             .setDuration(FadeOutDurationMs)
-            .withEndAction {
+            .start()
+        overlayRemovalJob = serviceScope.launch {
+            delay(FadeOutDurationMs)
+            if (veilGeneration != removalGeneration) {
+                return@launch
+            }
+            if (overlayViewHolder?.root === rootView) {
                 removeOverlayImmediately()
                 activeRequest = null
             }
-            .start()
+        }
     }
 
     private fun removeOverlayImmediately() {
-        val viewHolder = overlayViewHolder ?: return
+        val viewHolder = overlayViewHolder ?: run {
+            isOverlayAttached = false
+            return
+        }
+        // Holder and attachment flag are cleared first so a duplicate removal can never
+        // reach removeViewImmediate twice (IllegalArgumentException on a detached view).
+        overlayViewHolder = null
+        val wasAttached = isOverlayAttached
+        isOverlayAttached = false
+        if (!wasAttached) {
+            return
+        }
         runCatching {
             windowManager.removeViewImmediate(viewHolder.root)
         }
-        overlayViewHolder = null
     }
 
     private fun bindPassage(
@@ -325,16 +424,16 @@ class VeilOverlayService : Service() {
         request: DetectionEvent.VeilRequested,
     ) {
         viewHolder.reasonText.text = when (request.triggerMode) {
-            com.haramveil.utils.DetectionTriggerMode.MODE_1 ->
+            DetectionTriggerMode.MODE_1 ->
                 "Mode 1 spotted high-risk content and veiled the screen."
 
-            com.haramveil.utils.DetectionTriggerMode.MODE_2 ->
+            DetectionTriggerMode.MODE_2 ->
                 "Mode 2 found risky text and moved you away from the app."
 
-            com.haramveil.utils.DetectionTriggerMode.MODE_3 ->
+            DetectionTriggerMode.MODE_3 ->
                 "Mode 3 detected unsafe visual content and blocked the app."
 
-            com.haramveil.utils.DetectionTriggerMode.LOCKDOWN ->
+            DetectionTriggerMode.LOCKDOWN ->
                 "This app is still in lockdown, so HaramVeil blocked it again."
         }
     }
@@ -530,12 +629,32 @@ class VeilOverlayService : Service() {
     }
 
     private fun resolveHomePackages(): Set<String> {
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        homePackagesCache?.let { cachedPackages ->
+            if (nowElapsedMs - homePackagesCachedAtElapsedMs < HomePackagesCacheDurationMs) {
+                return cachedPackages
+            }
+        }
+
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_HOME)
         }
-        return packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            .map { resolveInfo -> resolveInfo.activityInfo.packageName }
-            .toSet()
+        // PackageManager queries are synchronous binder calls; run them at most once a
+        // minute instead of on every TYPE_WINDOW_STATE_CHANGED while a veil is up.
+        val resolvedPackages = runCatching {
+            packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                .map { resolveInfo -> resolveInfo.activityInfo.packageName }
+                .toSet()
+        }.getOrElse { error ->
+            DebugLog.w(applicationContext, LogTag) {
+                "Home package query failed: ${error.javaClass.simpleName}: ${error.message}"
+            }
+            return homePackagesCache ?: emptySet()
+        }
+
+        homePackagesCache = resolvedPackages
+        homePackagesCachedAtElapsedMs = nowElapsedMs
+        return resolvedPackages
     }
 
     private fun createNotificationChannel() {
@@ -610,5 +729,6 @@ class VeilOverlayService : Service() {
         private const val MinimumVeilDisplayDurationMs = 2_000L
         private const val PreviewDismissDelayMs = 6_000L
         private const val RootCommandTimeoutMs = 1_500L
+        private const val HomePackagesCacheDurationMs = 60_000L
     }
 }

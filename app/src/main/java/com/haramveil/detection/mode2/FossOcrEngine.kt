@@ -41,7 +41,9 @@ class FossOcrEngine(
     private val modelDownloadManager: ModelDownloadManager,
     private val dispatcherProvider: DispatcherProvider = DispatcherProvider(),
 ) : OcrEngine {
-    private val environment = OrtEnvironment.getEnvironment()
+    private val environment: OrtEnvironment? by lazy {
+        runCatching { OrtEnvironment.getEnvironment() }.getOrNull()
+    }
     private val sessionLock = Any()
 
     @Volatile
@@ -54,25 +56,36 @@ class FossOcrEngine(
         withContext(dispatcherProvider.default) {
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
 
-            if (!isAvailable()) {
-                modelDownloadManager.postSetupReminderNotification()
-                return@withContext OcrResult(
-                    text = "",
-                    confidence = 0f,
-                    processingTimeMs = 0L,
-                )
-            }
-
-            val session = openSession() ?: return@withContext OcrResult(
+            val emptyResult = OcrResult(
                 text = "",
                 confidence = 0f,
                 processingTimeMs = 0L,
             )
+
+            if (!isAvailable()) {
+                modelDownloadManager.postSetupReminderNotification()
+                return@withContext emptyResult
+            }
+
+            val ortEnvironment = environment
+            if (ortEnvironment == null) {
+                postSetupReminder()
+                return@withContext emptyResult
+            }
+
+            val session = openSession()
+            if (session == null) {
+                postSetupReminder()
+                return@withContext emptyResult
+            }
+
             val startedAt = SystemClock.elapsedRealtime()
             val characters = loadCharacters(session)
-            val inputEntry = session.inputInfo.entries.first()
-            val tensorInfo = inputEntry.value.info as TensorInfo
-            val inputShape = tensorInfo.shape
+            val inputEntry = session.inputInfo.entries
+                .firstOrNull { entry -> entry.value.info is TensorInfo }
+                ?: return@withContext emptyResult
+            val inputShape = (inputEntry.value.info as? TensorInfo)?.shape
+                ?: return@withContext emptyResult
             val targetHeight = when {
                 inputShape.size > 2 && inputShape[2] > 0L -> inputShape[2].toInt()
                 else -> DefaultInputHeight
@@ -93,7 +106,7 @@ class FossOcrEngine(
                         targetWidth = targetWidth,
                     )
                     val tensorShape = longArrayOf(1L, 3L, targetHeight.toLong(), targetWidth.toLong())
-                    OnnxTensor.createTensor(environment, FloatBuffer.wrap(inputData), tensorShape).use { tensor ->
+                    OnnxTensor.createTensor(ortEnvironment, FloatBuffer.wrap(inputData), tensorShape).use { tensor ->
                         session.run(mapOf(inputEntry.key to tensor)).use { outputs ->
                             val decodedLine = decodeCtcOutput(
                                 rawOutput = outputs[0].value,
@@ -106,9 +119,7 @@ class FossOcrEngine(
                         }
                     }
                 } finally {
-                    if (!lineBitmap.isRecycled) {
-                        lineBitmap.recycle()
-                    }
+                    recycleIfOwned(lineBitmap, bitmap)
                 }
             }
 
@@ -134,15 +145,20 @@ class FossOcrEngine(
 
         synchronized(sessionLock) {
             cachedSession?.let { return it }
+            val ortEnvironment = environment ?: return null
             return runCatching {
                 OrtSession.SessionOptions().use { sessionOptions ->
-                    environment.createSession(
+                    ortEnvironment.createSession(
                         modelDownloadManager.modelFile().absolutePath,
                         sessionOptions,
                     )
                 }
             }.getOrNull()?.also { cachedSession = it }
         }
+    }
+
+    private fun postSetupReminder() {
+        runCatching { modelDownloadManager.postSetupReminderNotification() }
     }
 
     private fun loadCharacters(session: OrtSession): List<String> {
@@ -176,17 +192,8 @@ class FossOcrEngine(
 
     private fun parseCharacterMetadata(rawMetadata: String?): List<String> {
         val baseCharacters = rawMetadata
-            ?.replace("[", "")
-            ?.replace("]", "")
-            ?.lineSequence()
-            ?.flatMap { line ->
-                when {
-                    line.contains(',') -> line.split(',').asSequence()
-                    else -> sequenceOf(line)
-                }
-            }
-            ?.map { token -> token.trim().trim('"', '\'') }
-            ?.filter(String::isNotBlank)
+            ?.let { metadata -> splitCharacterMetadata(metadata) }
+            ?.filter(String::isNotEmpty)
             ?.toMutableList()
             ?: mutableListOf()
 
@@ -202,6 +209,125 @@ class FossOcrEngine(
         }
         return baseCharacters
     }
+
+    private fun splitCharacterMetadata(rawMetadata: String): List<String> {
+        val quotedCharacters = runCatching { splitQuotedCharacters(rawMetadata) }.getOrNull()
+        if (!quotedCharacters.isNullOrEmpty()) {
+            return quotedCharacters
+        }
+        return splitLegacyCharacters(rawMetadata)
+    }
+
+    private fun splitQuotedCharacters(rawMetadata: String): List<String> {
+        val body = rawMetadata.trim().removePrefix("[").removeSuffix("]")
+        val characters = mutableListOf<String>()
+        val currentToken = StringBuilder()
+        var foundQuotedEntry = false
+        var index = 0
+
+        while (index < body.length) {
+            val character = body[index]
+            when {
+                character == QuoteCharacter || character == AlternateQuoteCharacter -> {
+                    val closingIndex = findClosingQuote(body, index, character)
+                    currentToken.setLength(0)
+                    if (closingIndex < 0) {
+                        index = body.length
+                    } else {
+                        currentToken.append(body, index + 1, closingIndex)
+                        characters += currentToken.toString()
+                        currentToken.setLength(0)
+                        foundQuotedEntry = true
+                        index = skipToNextSeparator(body, closingIndex + 1)
+                    }
+                }
+
+                character == EscapeCharacter && index + 1 < body.length -> {
+                    currentToken.append(unescapeMetadataCharacter(body[index + 1]))
+                    index += 2
+                }
+
+                character == EntrySeparator -> {
+                    val token = unquoteToken(currentToken.toString())
+                    if (token.isNotEmpty()) {
+                        characters += token
+                    }
+                    currentToken.setLength(0)
+                    index += 1
+                }
+
+                else -> {
+                    currentToken.append(character)
+                    index += 1
+                }
+            }
+        }
+
+        if (!foundQuotedEntry) {
+            return emptyList()
+        }
+
+        val trailingToken = unquoteToken(currentToken.toString())
+        if (trailingToken.isNotEmpty()) {
+            characters += trailingToken
+        }
+        return characters
+    }
+
+    private fun findClosingQuote(
+        value: String,
+        openIndex: Int,
+        quoteCharacter: Char,
+    ): Int {
+        var index = openIndex + 1
+        while (index < value.length) {
+            val character = value[index]
+            if (character == EscapeCharacter && index + 1 < value.length) {
+                index += 2
+            } else if (character == quoteCharacter) {
+                return index
+            } else {
+                index += 1
+            }
+        }
+        return -1
+    }
+
+    private fun skipToNextSeparator(
+        value: String,
+        startIndex: Int,
+    ): Int {
+        var index = startIndex
+        while (index < value.length && value[index] != EntrySeparator) {
+            index += 1
+        }
+        return index + 1
+    }
+
+    private fun unescapeMetadataCharacter(character: Char): Char =
+        when (character) {
+            'n' -> '\n'
+            'r' -> '\r'
+            't' -> '\t'
+            else -> character
+        }
+
+    private fun unquoteToken(token: String): String =
+        token.trim().trim(QuoteCharacter, AlternateQuoteCharacter)
+
+    private fun splitLegacyCharacters(rawMetadata: String): List<String> =
+        rawMetadata
+            .replace("[", "")
+            .replace("]", "")
+            .lineSequence()
+            .flatMap { line ->
+                when {
+                    line.contains(EntrySeparator) -> line.split(EntrySeparator).asSequence()
+                    else -> sequenceOf(line)
+                }
+            }
+            .map { token -> unquoteToken(token) }
+            .toList()
 
     private fun extractCandidateSlices(bitmap: Bitmap): List<Bitmap> {
         if (bitmap.width <= 0 || bitmap.height <= 0) {
@@ -223,7 +349,7 @@ class FossOcrEngine(
             if (hasMeaningfulContrast(slice)) {
                 slices += slice
             } else {
-                slice.recycle()
+                recycleIfOwned(slice, bitmap)
             }
 
             if (top + height >= bitmap.height) {
@@ -237,6 +363,15 @@ class FossOcrEngine(
         }
 
         return slices
+    }
+
+    private fun recycleIfOwned(
+        candidate: Bitmap,
+        source: Bitmap,
+    ) {
+        if (candidate !== source && !candidate.isRecycled) {
+            candidate.recycle()
+        }
     }
 
     private fun hasMeaningfulContrast(bitmap: Bitmap): Boolean {
@@ -321,7 +456,7 @@ class FossOcrEngine(
             }
 
             val token = characters.getOrNull(bestIndex).orEmpty()
-            if (token.isNotBlank()) {
+            if (token.isNotEmpty()) {
                 outputText.append(token)
                 confidences += probability
             }
@@ -379,5 +514,9 @@ class FossOcrEngine(
         const val DefaultInputHeight = 48
         const val DefaultInputWidth = 320
         const val MinimumContrastDelta = 18
+        const val EntrySeparator = ','
+        const val QuoteCharacter = '\''
+        const val AlternateQuoteCharacter = '"'
+        const val EscapeCharacter = '\\'
     }
 }

@@ -34,6 +34,7 @@ import com.haramveil.utils.DispatcherProvider
 import com.haramveil.utils.DebugLog
 import com.haramveil.utils.Mode1WakeRequest
 import com.haramveil.utils.ScreenCaptureManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import kotlin.math.max
 
 class Mode3Processor(
@@ -74,24 +76,46 @@ class Mode3Processor(
             return
         }
 
+        val collectorStartedAtMs = System.currentTimeMillis()
         processorJob = processorScope.launch(dispatcherProvider.default) {
-            runCatching {
-                inferenceEngine.warm(modelSelector.select())
-            }
+            warmModelSafely()
 
             DetectionBus.events
                 .filterIsInstance<DetectionEvent.Mode1Triggered>()
                 .collect { event ->
-                    runCatching {
+                    // DetectionBus replays its newest event to every new collector, so a
+                    // trigger that was issued before this collector started belongs to a
+                    // screen that has already moved on and must not be scanned again.
+                    if (event.trigger.issuedAtEpochMs < collectorStartedAtMs) {
+                        return@collect
+                    }
+                    try {
                         processTrigger(event.trigger)
-                    }.onFailure { error ->
+                    } catch (cancellation: CancellationException) {
+                        rethrowCancellation(cancellation)
+                    } catch (failure: Exception) {
                         DebugLog.w(applicationContext, LogTag) {
-                            "Mode 3 processing failed for ${event.trigger.scanResult.packageName}: ${error.message}"
+                            "Mode 3 processing failed for ${event.trigger.scanResult.packageName}: ${failure.message}"
                         }
                     }
                 }
         }
     }
+
+    private suspend fun warmModelSafely() {
+        try {
+            inferenceEngine.warm(modelSelector.select())
+        } catch (cancellation: CancellationException) {
+            rethrowCancellation(cancellation)
+        } catch (failure: Exception) {
+            DebugLog.w(applicationContext, LogTag) {
+                "Mode 3 model warm-up failed: ${failure.message}"
+            }
+        }
+    }
+
+    private fun rethrowCancellation(cancellation: CancellationException): Nothing =
+        throw cancellation
 
     fun stop() {
         processorJob?.cancel()
@@ -183,7 +207,8 @@ class Mode3Processor(
 
                 if (detectionResult.isUnsafe) {
                     val matchDetails =
-                        "$summaryDetails Unsafe class ${detectionResult.className} scored ${"%.2f".format(detectionResult.confidence)}."
+                        "$summaryDetails Unsafe class ${detectionResult.className} scored " +
+                            String.format(Locale.ROOT, "%.2f", detectionResult.confidence) + "."
                     statsRepository.logBlock(
                         packageName = trigger.scanResult.packageName,
                         mode = 3,
@@ -217,7 +242,7 @@ class Mode3Processor(
         }
     }
 
-    private suspend fun updateThermalGuard(
+    private fun updateThermalGuard(
         packageName: String,
         configuredRateLimitMs: Long,
         inferenceTimeMs: Long,
@@ -232,9 +257,11 @@ class Mode3Processor(
 
         if (consecutiveSlowInferences >= SlowInferenceStrikeCount) {
             val newRateLimitMs = max(configuredRateLimitMs, ThermalGuardRateLimitMs)
+            // In-process override only: a temporary thermal condition must never be written
+            // into the stored preferences, where it would outlive the condition and keep
+            // slowing visual scans down forever.
             thermalRateLimitOverrideMs = newRateLimitMs
             consecutiveSlowInferences = 0
-            protectionPreferencesRepository.saveMode3InferenceIntervalMs(newRateLimitMs)
             val warningMessage =
                 "Thermal guard raised visual scan pacing to ${newRateLimitMs}ms after repeated slow inferences in $packageName."
             DetectionBus.publishMode3Clear(

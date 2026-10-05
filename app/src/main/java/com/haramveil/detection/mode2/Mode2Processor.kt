@@ -25,8 +25,10 @@ import android.os.Process
 import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.data.local.StatsRepository
 import com.haramveil.data.models.ProtectionSettings
+import com.haramveil.detection.mode1.ScanResult
+import com.haramveil.detection.mode1.UITreeScanner
+import com.haramveil.utils.DebugLog
 import com.haramveil.utils.DetectionBus
-import com.haramveil.utils.DetectionEvent
 import com.haramveil.utils.DetectionTriggerMode
 import com.haramveil.utils.DispatcherProvider
 import com.haramveil.utils.Mode1WakeRequest
@@ -35,10 +37,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class Mode2Processor(
     context: Context,
@@ -51,6 +55,7 @@ class Mode2Processor(
     private val processorScope = CoroutineScope(SupervisorJob() + dispatcherProvider.default)
     private val screenCaptureManager = ScreenCaptureManager(dispatcherProvider)
     private val statsRepository = StatsRepository.getInstance(context)
+    private val uiTreeScanner = UITreeScanner()
     private val ocrEngineSelector = OcrEngineSelector(
         context = context,
         protectionPreferencesRepository = protectionPreferencesRepository,
@@ -58,20 +63,25 @@ class Mode2Processor(
     )
     private var processorJob: Job? = null
 
+    @Volatile
+    private var lastOcrStartedAtMs = 0L
+
     fun start() {
         if (processorJob?.isActive == true) {
             return
         }
 
+        val startedAtEpochMs = System.currentTimeMillis()
         processorJob = processorScope.launch(dispatcherProvider.default) {
-            DetectionBus.events
-                .filterIsInstance<DetectionEvent.Mode1Triggered>()
-                .collectLatest { event ->
+            DetectionBus.mode1WakeRequests
+                .filterNotNull()
+                .filter { trigger -> trigger.issuedAtEpochMs > startedAtEpochMs }
+                .collect { trigger ->
                     runCatching {
-                        processTrigger(event.trigger)
+                        processTrigger(trigger)
                     }.onFailure { error ->
-                        com.haramveil.utils.DebugLog.w(applicationContext, "HaramVeilMode2") {
-                            "Mode 2 processing failed for ${event.trigger.scanResult.packageName}: ${error.message}"
+                        DebugLog.w(applicationContext, LogTag) {
+                            "Mode 2 processing failed for ${trigger.scanResult.packageName}: ${error.message}"
                         }
                     }
                 }
@@ -81,6 +91,7 @@ class Mode2Processor(
     fun stop() {
         processorJob?.cancel()
         processorJob = null
+        lastOcrStartedAtMs = 0L
     }
 
     fun destroy() {
@@ -97,6 +108,20 @@ class Mode2Processor(
             if (!settings.mode2Enabled || !trigger.wakeMode2) {
                 return@withContext
             }
+
+            if (!isMode2ContextEligible(settings, trigger.scanResult)) {
+                return@withContext
+            }
+
+            val nowMs = System.currentTimeMillis()
+            if (nowMs - lastOcrStartedAtMs < MinimumOcrIntervalMs) {
+                DetectionBus.publishMode2Clear(
+                    packageName = trigger.scanResult.packageName,
+                    details = "OCR skipped to respect the ${MinimumOcrIntervalMs}ms minimum interval.",
+                )
+                return@withContext
+            }
+            lastOcrStartedAtMs = nowMs
 
             val accessibilityService = accessibilityServiceProvider() ?: run {
                 DetectionBus.publishMode2Clear(
@@ -161,6 +186,18 @@ class Mode2Processor(
         }
     }
 
+    private fun isMode2ContextEligible(
+        settings: ProtectionSettings,
+        scanResult: ScanResult,
+    ): Boolean {
+        val packageName = scanResult.packageName
+        return when {
+            packageName in settings.monitoredPackages -> true
+            scanResult.triggered -> true
+            else -> uiTreeScanner.isBrowserPackage(packageName) || uiTreeScanner.isHighRiskPackage(packageName)
+        }
+    }
+
     private fun findMatchedKeyword(
         extractedText: String,
         keywordBlocklist: List<String>,
@@ -175,21 +212,35 @@ class Mode2Processor(
                 return@firstOrNull false
             }
 
-            if (looksLikeRegex(trimmedEntry)) {
-                runCatching {
-                    Regex(trimmedEntry, RegexOption.IGNORE_CASE).containsMatchIn(extractedText)
-                }.getOrDefault(false)
-            } else {
-                extractedText.contains(other = trimmedEntry, ignoreCase = true)
-            }
+            matchesEntry(
+                entry = trimmedEntry,
+                extractedText = extractedText,
+                allowLiteralFallback = true,
+            )
         }
+    }
+
+    private fun matchesEntry(
+        entry: String,
+        extractedText: String,
+        allowLiteralFallback: Boolean,
+    ): Boolean {
+        if (!looksLikeRegex(entry)) {
+            return extractedText.contains(other = entry, ignoreCase = true)
+        }
+
+        val regexMatched = runCatching {
+            Regex(entry, RegexOption.IGNORE_CASE).containsMatchIn(extractedText)
+        }.getOrDefault(false)
+        if (regexMatched) {
+            return true
+        }
+
+        return allowLiteralFallback && extractedText.contains(other = entry, ignoreCase = true)
     }
 
     private fun looksLikeRegex(entry: String): Boolean =
         entry.any { character -> character in RegexMetaCharacters }
-
-    private fun looksLikeDomainRegex(entry: String): Boolean =
-        entry.any { character -> character in DomainRegexMetaCharacters }
 
     private fun findMatchedDomain(
         extractedText: String,
@@ -201,7 +252,7 @@ class Mode2Processor(
 
         val candidates = buildList {
             add(extractedText)
-            DomainRegex.findAll(extractedText.lowercase())
+            DomainRegex.findAll(extractedText.lowercase(Locale.ROOT))
                 .map { normalizeDomainToken(it.value) }
                 .filter(String::isNotBlank)
                 .forEach { add(it) }
@@ -212,11 +263,13 @@ class Mode2Processor(
             if (trimmedEntry.isEmpty()) {
                 return@firstNotNullOfOrNull null
             }
-            if (looksLikeDomainRegex(trimmedEntry)) {
-                val regex = runCatching { Regex(trimmedEntry, RegexOption.IGNORE_CASE) }.getOrNull()
-                    ?: return@firstNotNullOfOrNull null
+            if (looksLikeRegex(trimmedEntry)) {
                 candidates.firstOrNull { candidate ->
-                    regex.containsMatchIn(candidate)
+                    matchesEntry(
+                        entry = trimmedEntry,
+                        extractedText = candidate,
+                        allowLiteralFallback = false,
+                    )
                 }?.let { trimmedEntry }
             } else {
                 val normalizedEntry = normalizeDomainToken(trimmedEntry)
@@ -233,7 +286,7 @@ class Mode2Processor(
     }
 
     private fun normalizeDomainToken(value: String): String {
-        val trimmed = value.trim().lowercase()
+        val trimmed = value.trim().lowercase(Locale.ROOT)
         val withoutScheme = trimmed
             .removePrefix("https://")
             .removePrefix("http://")
@@ -258,11 +311,13 @@ class Mode2Processor(
         }
 
     private companion object {
+        const val LogTag = "HaramVeilMode2"
+        const val MinimumOcrIntervalMs = 1_500L
+
         val RegexMetaCharacters = setOf(
             '\\',
             '^',
             '$',
-            '.',
             '|',
             '?',
             '*',
@@ -275,7 +330,6 @@ class Mode2Processor(
             '}',
         )
 
-        val DomainRegexMetaCharacters = RegexMetaCharacters - '.'
         val DomainRegex = Regex("([a-z0-9-]+\\.)+[a-z]{2,}")
     }
 }

@@ -21,9 +21,15 @@ package com.haramveil.detection.mode3
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
 import com.haramveil.utils.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 class NudeNetPreprocessor(
     private val dispatcherProvider: DispatcherProvider = DispatcherProvider(),
@@ -34,17 +40,11 @@ class NudeNetPreprocessor(
         modelConfig: ModelConfig,
         environment: OrtEnvironment,
     ): OnnxTensor = withContext(dispatcherProvider.default) {
-        val scaledBitmap = Bitmap.createScaledBitmap(
-            bitmap,
-            modelConfig.inputSize,
-            modelConfig.inputSize,
-            true,
-        )
-
+        val inputSize = modelConfig.inputSize
+        val letterboxed = letterbox(bitmap, inputSize)
         try {
-            val inputSize = modelConfig.inputSize
             val pixels = IntArray(inputSize * inputSize)
-            scaledBitmap.getPixels(
+            letterboxed.getPixels(
                 pixels,
                 0,
                 inputSize,
@@ -70,9 +70,44 @@ class NudeNetPreprocessor(
                 longArrayOf(1L, 3L, inputSize.toLong(), inputSize.toLong()),
             )
         } finally {
-            if (!scaledBitmap.isRecycled && scaledBitmap !== bitmap) {
-                scaledBitmap.recycle()
-            }
+            // Only the temporary letterbox bitmap is recycled: the caller's bitmap stays
+            // usable because Mode3Processor still owns it (it reuses or recycles it later).
+            letterboxed.recycle()
         }
+    }
+
+    /**
+     * Aspect-preserving centred letterbox padded with grey (114), matching the Ultralytics
+     * pre-processing the model was exported with. Stretching the frame to a square instead
+     * shifts every predicted box away from the body part it was trained to detect.
+     */
+    private fun letterbox(
+        bitmap: Bitmap,
+        inputSize: Int,
+    ): Bitmap {
+        val scale = max(
+            inputSize.toFloat() / bitmap.width.toFloat(),
+            inputSize.toFloat() / bitmap.height.toFloat(),
+        )
+        val scaledWidth = max(1, (bitmap.width * scale).roundToInt())
+        val scaledHeight = max(1, (bitmap.height * scale).roundToInt())
+        val leftOffset = (inputSize - scaledWidth) / 2
+        val topOffset = (inputSize - scaledHeight) / 2
+
+        val letterboxed = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+        Canvas(letterboxed).apply {
+            drawColor(Color.rgb(PaddingGrey, PaddingGrey, PaddingGrey))
+            drawBitmap(
+                bitmap,
+                Rect(0, 0, bitmap.width, bitmap.height),
+                Rect(leftOffset, topOffset, leftOffset + scaledWidth, topOffset + scaledHeight),
+                Paint(Paint.FILTER_BITMAP_FLAG),
+            )
+        }
+        return letterboxed
+    }
+
+    private companion object {
+        const val PaddingGrey = 114
     }
 }

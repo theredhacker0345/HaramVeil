@@ -47,6 +47,20 @@ class ProtectionBootstrapStore(
     fun isProtectionEnabled(): Boolean =
         preferences.getBoolean(ProtectionEnabledKey, true)
 
+    /**
+     * Device-protected marker telling a disabled runtime apart from an open safe window.
+     * It has to live in device-protected storage because the deadline itself is kept in
+     * credential-protected DataStore, which is unreadable before unlock.
+     */
+    fun setSafeWindowActive(isActive: Boolean) {
+        preferences.edit()
+            .putBoolean(SafeWindowActiveKey, isActive)
+            .apply()
+    }
+
+    fun isSafeWindowActive(): Boolean =
+        preferences.getBoolean(SafeWindowActiveKey, false)
+
     fun markServiceRunning(isRunning: Boolean) {
         preferences.edit()
             .putBoolean(ServiceRunningKey, isRunning)
@@ -126,6 +140,7 @@ class ProtectionBootstrapStore(
         private const val PreferenceFileName = "haramveil_bootstrap_state"
         private const val BootstrapReadyKey = "bootstrap_ready"
         private const val ProtectionEnabledKey = "protection_enabled"
+        private const val SafeWindowActiveKey = "safe_window_active"
         private const val ServiceRunningKey = "service_running"
         private const val ServiceHeartbeatMsKey = "service_heartbeat_ms"
         private const val LastScanHeartbeatMsKey = "last_scan_heartbeat_ms"

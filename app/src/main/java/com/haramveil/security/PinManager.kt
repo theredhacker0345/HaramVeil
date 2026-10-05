@@ -23,6 +23,8 @@ import android.os.SystemClock
 import android.provider.Settings
 import at.favre.lib.crypto.bcrypt.BCrypt
 import com.haramveil.data.local.HaramVeilDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class PinManager(
     context: Context,
@@ -33,8 +35,13 @@ class PinManager(
     }
 
     fun storePIN(pin: String) {
+        require(isValidPin(pin)) {
+            "PIN must be exactly $RequiredPinLength ASCII digits."
+        }
         val previousHash = storedPinHashOrNull()
-        val bcryptHash = BCrypt.withDefaults().hashToString(BcryptCost, pin.toCharArray())
+        val bcryptHash = withPinChars(pin) { pinChars ->
+            BCrypt.withDefaults().hashToString(BcryptCost, pinChars)
+        }
         HaramVeilDatabase.rekeyIfNeeded(
             context = applicationContext,
             oldPinHash = previousHash,
@@ -56,9 +63,18 @@ class PinManager(
         }
 
         val storedHash = encryptedPreferences.getString(PinHashKey, null) ?: return false
-        return BCrypt.verifyer()
-            .verify(attempt.toCharArray(), storedHash)
-            .verified
+        return withPinChars(attempt) { attemptChars ->
+            BCrypt.verifyer()
+                .verify(attemptChars, storedHash)
+                .verified
+        }
+    }
+
+    suspend fun verifyPINAsync(attempt: String): Boolean =
+        withContext(Dispatchers.Default) { verifyPIN(attempt) }
+
+    suspend fun storePINAsync(pin: String) {
+        withContext(Dispatchers.IO) { storePIN(pin) }
     }
 
     fun isSet(): Boolean = encryptedPreferences.contains(PinHashKey)
@@ -162,6 +178,21 @@ class PinManager(
             Settings.Global.getInt(applicationContext.contentResolver, Settings.Global.BOOT_COUNT)
         }.getOrDefault(0)
 
+    private fun isValidPin(pin: String): Boolean =
+        pin.length == RequiredPinLength && pin.all { character -> character in '0'..'9' }
+
+    private inline fun <T> withPinChars(
+        pin: String,
+        block: (CharArray) -> T,
+    ): T {
+        val pinChars = pin.toCharArray()
+        return try {
+            block(pinChars)
+        } finally {
+            pinChars.fill('\u0000')
+        }
+    }
+
     companion object {
         private const val PreferenceFileName = "haramveil_secure_state"
         private const val PinHashKey = "pin_bcrypt_hash"
@@ -169,6 +200,7 @@ class PinManager(
         private const val PinLockoutUntilKey = "pin_lockout_until_epoch_ms"
         private const val PinLockoutElapsedUntilKey = "pin_lockout_until_elapsed_ms"
         private const val PinLockoutBootCountKey = "pin_lockout_boot_count"
+        private const val RequiredPinLength = 6
         private const val BcryptCost = 12
         private const val MaxFailedAttempts = 3
         private const val LockoutDurationMs = 20 * 60 * 1_000L

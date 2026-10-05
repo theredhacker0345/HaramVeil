@@ -21,6 +21,8 @@ package com.haramveil.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.haramveil.utils.DebugLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,21 +33,21 @@ class BootReceiver : BroadcastReceiver() {
         context: Context,
         intent: Intent,
     ) {
-        if (intent.action !in SupportedActions) {
+        val action = intent.action
+        if (action !in SupportedActions) {
             return
         }
 
-        val pendingResult = goAsync()
+        val appContext = context.applicationContext
+        val pendingResult = runCatching { goAsync() }.getOrNull() ?: return
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
-                val bootContext = if (intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
-                    context.applicationContext.createDeviceProtectedStorageContext()
-                } else {
-                    context.applicationContext
-                }
-                val bootstrapStore = ProtectionBootstrapStore(bootContext)
-                if (bootstrapStore.isBootstrapReady() && bootstrapStore.isProtectionEnabled()) {
-                    HaramVeilProtectionController.start(bootContext)
+                startProtectionAfterBoot(appContext, action)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                DebugLog.w(appContext, LogTag) {
+                    "Boot handling for $action failed: ${error.javaClass.simpleName}: ${error.message}"
                 }
             } finally {
                 pendingResult.finish()
@@ -53,7 +55,48 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 
+    private fun startProtectionAfterBoot(
+        appContext: Context,
+        action: String?,
+    ) {
+        // Only the direct-boot broadcast can arrive while the credential-encrypted
+        // storage is still locked; everything else must stay on the app context so a
+        // failure can never be reported against the wrong storage.
+        val bootContext = if (action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            val deviceProtectedContext = runCatching {
+                appContext.createDeviceProtectedStorageContext()
+            }.getOrElse { error ->
+                DebugLog.w(appContext, LogTag) {
+                    "Device-protected storage unavailable at direct boot: ${error.javaClass.simpleName}"
+                }
+                return
+            }
+            deviceProtectedContext
+        } else {
+            appContext
+        }
+
+        val bootstrapStore = runCatching { ProtectionBootstrapStore(bootContext) }.getOrNull() ?: return
+        val shouldStart = runCatching {
+            bootstrapStore.isBootstrapReady() && bootstrapStore.isProtectionEnabled()
+        }.getOrElse { error ->
+            DebugLog.w(appContext, LogTag) {
+                "Bootstrap read failed: ${error.javaClass.simpleName}: ${error.message}"
+            }
+            false
+        }
+        if (!shouldStart) {
+            return
+        }
+
+        // The foreground start itself may still be rejected in the background, which the
+        // controller turns into a deferred health-alarm retry.
+        HaramVeilProtectionController.start(bootContext)
+    }
+
     private companion object {
+        const val LogTag = "HaramVeilBoot"
+
         val SupportedActions = setOf(
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_LOCKED_BOOT_COMPLETED,

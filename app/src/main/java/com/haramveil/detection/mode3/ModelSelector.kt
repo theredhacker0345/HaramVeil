@@ -22,7 +22,6 @@ import android.content.Context
 import com.haramveil.data.local.OnboardingPreferencesRepository
 import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.data.models.ModelImportManager
-import com.haramveil.data.models.ModelSource
 import com.haramveil.data.models.VisualModelOption
 
 data class ModelConfig(
@@ -52,7 +51,6 @@ class ModelSelector(
     suspend fun readSelectionState(): ModelSelectionState {
         val protectionSettings = protectionPreferencesRepository.readSettings()
         val onboardingSnapshot = onboardingPreferencesRepository.readSnapshot()
-        val supportedModel = onboardingSnapshot.benchmarkResult?.supportedModel
         val preferredModel = protectionSettings.selectedVisualModel ?: onboardingSnapshot.selectedVisualModel
 
         val installedModels = VisualModelOption.entries

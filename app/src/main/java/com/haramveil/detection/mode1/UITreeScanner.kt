@@ -127,13 +127,32 @@ class UITreeScanner {
     fun isHighRiskPackage(packageName: String): Boolean {
         val normalizedPackage = packageName.lowercase(Locale.ROOT)
         return normalizedPackage in HighRiskPackages ||
-            HighRiskKeywords.any { keyword -> normalizedPackage.contains(keyword) }
+            matchesPackageSegment(normalizedPackage, HighRiskKeywords)
     }
 
     fun isBrowserPackage(packageName: String): Boolean {
         val normalizedPackage = packageName.lowercase(Locale.ROOT)
         return normalizedPackage in BrowserPackages ||
-            BrowserKeywords.any { keyword -> normalizedPackage.contains(keyword) }
+            matchesPackageSegment(normalizedPackage, BrowserKeywords)
+    }
+
+    private fun matchesPackageSegment(
+        normalizedPackage: String,
+        keywords: List<String>,
+    ): Boolean {
+        val segments = normalizedPackage.split('.', '_')
+        return keywords.any { keyword ->
+            segments.any { segment ->
+                segment == keyword || segment.hasVersionedKeywordSuffix(keyword)
+            }
+        }
+    }
+
+    private fun String.hasVersionedKeywordSuffix(keyword: String): Boolean {
+        if (length <= keyword.length || !startsWith(keyword)) {
+            return false
+        }
+        return substring(keyword.length).all(Char::isDigit)
     }
 
     private fun collectVisibleSignals(
@@ -144,33 +163,56 @@ class UITreeScanner {
         val resourceIds = linkedSetOf<String>()
         val contentDescriptions = linkedSetOf<String>()
         val traversalStack = ArrayDeque<AccessibilityNodeInfo>()
-        traversalStack.addLast(rootNode)
+        var processedNodes = 0
+        var isOwnedNode = false
+        var currentNode: AccessibilityNodeInfo? = rootNode
 
-        while (traversalStack.isNotEmpty()) {
-            val currentNode = traversalStack.removeLast()
-            if (currentNode.isVisibleToUser || isBrowserOrHighRisk) {
-                currentNode.text
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf(String::isNotEmpty)
-                    ?.let(visibleTexts::add)
+        try {
+            while (currentNode != null && processedNodes < MaxTraversalNodes) {
+                val node = currentNode
+                currentNode = null
+                processedNodes += 1
+                try {
+                    if (node.isVisibleToUser || isBrowserOrHighRisk) {
+                        node.text
+                            ?.toString()
+                            ?.trim()
+                            ?.takeIf(String::isNotEmpty)
+                            ?.let(visibleTexts::add)
 
-                currentNode.viewIdResourceName
-                    ?.trim()
-                    ?.takeIf(String::isNotEmpty)
-                    ?.let(resourceIds::add)
+                        node.viewIdResourceName
+                            ?.trim()
+                            ?.takeIf(String::isNotEmpty)
+                            ?.let(resourceIds::add)
 
-                currentNode.contentDescription
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf(String::isNotEmpty)
-                    ?.let(contentDescriptions::add)
-            }
+                        node.contentDescription
+                            ?.toString()
+                            ?.trim()
+                            ?.takeIf(String::isNotEmpty)
+                            ?.let(contentDescriptions::add)
+                    }
 
-            for (childIndex in 0 until currentNode.childCount) {
-                currentNode.getChild(childIndex)?.let { childNode ->
-                    traversalStack.addLast(childNode)
+                    val childCount = node.childCount
+                    for (childIndex in 0 until childCount) {
+                        if (processedNodes + traversalStack.size >= MaxTraversalNodes) {
+                            break
+                        }
+                        node.getChild(childIndex)?.let { childNode ->
+                            traversalStack.addLast(childNode)
+                        }
+                    }
+                } finally {
+                    // The root is owned by the caller and must never be recycled here.
+                    if (isOwnedNode) {
+                        runCatching { node.recycle() }
+                    }
+                    isOwnedNode = true
                 }
+                currentNode = traversalStack.removeLastOrNull()
+            }
+        } finally {
+            while (traversalStack.isNotEmpty()) {
+                runCatching { traversalStack.removeLast().recycle() }
             }
         }
 
@@ -194,6 +236,9 @@ class UITreeScanner {
             addAll(extractedSignals.contentDescriptions)
             addAll(extractedSignals.resourceIds)
         }
+        if (searchableSignals.isEmpty()) {
+            return null
+        }
 
         return keywordBlocklist.firstOrNull { entry ->
             val trimmedEntry = entry.trim()
@@ -201,12 +246,13 @@ class UITreeScanner {
                 return@firstOrNull false
             }
 
-            searchableSignals.any { signal ->
-                if (looksLikeRegex(trimmedEntry)) {
-                    runCatching {
-                        Regex(trimmedEntry, RegexOption.IGNORE_CASE).containsMatchIn(signal)
-                    }.getOrDefault(false)
-                } else {
+            if (looksLikeRegex(trimmedEntry)) {
+                // Compile each regex entry once instead of once per visible signal.
+                val regex = runCatching { Regex(trimmedEntry, RegexOption.IGNORE_CASE) }.getOrNull()
+                    ?: return@firstOrNull false
+                searchableSignals.any { signal -> regex.containsMatchIn(signal) }
+            } else {
+                searchableSignals.any { signal ->
                     signal.contains(other = trimmedEntry, ignoreCase = true)
                 }
             }
@@ -287,6 +333,8 @@ class UITreeScanner {
     }
 
     private companion object {
+        const val MaxTraversalNodes = 10_000
+
         val RegexMetaCharacters = setOf(
             '\\',
             '^',
@@ -320,7 +368,8 @@ class UITreeScanner {
             "com.tinder",
             "com.hinge",
             "com.okcupid.android",
-            "com.grindr",
+            "com.grindrapp",
+            "com.x.android",
             "com.her",
             "com.feeld",
             "com.wapo",

@@ -21,24 +21,48 @@ package com.haramveil.overlay
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import com.haramveil.service.ServiceHealthAlarmReceiver
+import com.haramveil.utils.DebugLog
 
 object VeilOverlayController {
+    /**
+     * Starts the veil service, tolerating a rejected foreground service start.
+     *
+     * This is called from the accessibility service `onServiceConnected`, i.e. from a
+     * binder context where API 31+ throws `ForegroundServiceStartNotAllowedException`
+     * whenever the app is in the background without an exemption. A rejected start must
+     * never crash the accessibility service, so it is deferred to the permission-free
+     * inexact health alarm instead.
+     */
     fun start(
         context: Context,
     ) {
-        ContextCompat.startForegroundService(
-            context.applicationContext,
-            Intent(context.applicationContext, VeilOverlayService::class.java).apply {
-                action = VeilOverlayService.ActionStart
-            },
-        )
+        val appContext = context.applicationContext
+        val started = runCatching {
+            ContextCompat.startForegroundService(
+                appContext,
+                Intent(appContext, VeilOverlayService::class.java).apply {
+                    action = VeilOverlayService.ActionStart
+                },
+            )
+        }.isSuccess
+        if (!started) {
+            DebugLog.w(appContext, LogTag) {
+                "Veil overlay service start was rejected; deferring to the health alarm."
+            }
+            ServiceHealthAlarmReceiver.scheduleDeferredRestart(appContext)
+        }
     }
 
     fun stop(
         context: Context,
     ) {
-        context.applicationContext.stopService(
-            Intent(context.applicationContext, VeilOverlayService::class.java),
-        )
+        runCatching {
+            context.applicationContext.stopService(
+                Intent(context.applicationContext, VeilOverlayService::class.java),
+            )
+        }
     }
+
+    private const val LogTag = "HaramVeilVeil"
 }

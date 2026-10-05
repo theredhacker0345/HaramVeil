@@ -209,7 +209,7 @@ fun HaramVeilRoot(
                 isImporting = uiState.isImportingModel,
                 importMessage = uiState.modelImportMessage,
                 onContinue = {
-                    launchPersistAndNavigate(scope) {
+                    launchPersistAndNavigate(scope, context) {
                         viewModel.persistModeConfiguration()
                         navController.navigate(AppDestination.AppSelection.route)
                     }
@@ -224,7 +224,7 @@ fun HaramVeilRoot(
                 onDeselectAll = viewModel::deselectAllApps,
                 onSelectHighRisk = viewModel::selectHighRiskApps,
                 onContinue = {
-                    launchPersistAndNavigate(scope) {
+                    launchPersistAndNavigate(scope, context) {
                         viewModel.persistSelectedApps()
                         navController.navigate(AppDestination.PinSetup.route)
                     }
@@ -234,7 +234,7 @@ fun HaramVeilRoot(
         composable(AppDestination.PinSetup.route) {
             PinSetupScreen(
                 onContinue = { pin, securityAnswers ->
-                    launchPersistAndNavigate(scope) {
+                    launchPersistAndNavigate(scope, context) {
                         viewModel.persistPinAndSecuritySetup(pin, securityAnswers)
                         navController.navigate(AppDestination.Permissions.route)
                     }
@@ -253,7 +253,7 @@ fun HaramVeilRoot(
             AllSetScreen(
                 uiState = uiState,
                 onOpenDashboard = {
-                    launchPersistAndNavigate(scope) {
+                    launchPersistAndNavigate(scope, context) {
                         viewModel.markOnboardingComplete()
                         navController.navigate(AppDestination.Dashboard.route) {
                             popUpTo(AppDestination.Welcome.route) {
@@ -700,19 +700,26 @@ private fun PinSetupScreen(
     var activeDropdownSlot by rememberSaveable { mutableStateOf(-1) }
 
     val currentPinValue = if (pinStage == "create") createdPin else confirmPin
+    val createdPinIsStorable = createdPin.length == RequiredPinLength &&
+        createdPin.all { character -> character in '0'..'9' }
     val securityQuestionsComplete =
         pinConfirmed &&
+            createdPinIsStorable &&
             selectedQuestionIds.all { it.isNotBlank() } &&
-            selectedQuestionIds.distinct().size == 3 &&
+            selectedQuestionIds.distinct().size == RequiredSecurityQuestionCount &&
             selectedAnswers.all { it != -1 }
 
     OnboardingStepScreen(
         stepNumber = AppDestination.PinSetup.stepNumber ?: 4,
         title = "Lock your settings with a PIN",
-        subtitle = "PIN uses bcrypt in encrypted storage. Security answers are saved as SHA-256 hashes only.",
+        subtitle = stringResource(R.string.onboarding_pin_setup_subtitle),
         footer = {
             Button(
                 onClick = {
+                    if (!createdPinIsStorable) {
+                        pinErrorMessage = "Enter exactly 6 digits before continuing."
+                        return@Button
+                    }
                     val answers = selectedQuestionIds.zip(selectedAnswers).mapNotNull { (questionId, answerValue) ->
                         val question = questionCatalog.firstOrNull { it.id == questionId }
                         val answer = when (answerValue) {
@@ -725,6 +732,10 @@ private fun PinSetupScreen(
                         } else {
                             null
                         }
+                    }
+                    if (answers.size < RequiredSecurityQuestionCount) {
+                        pinErrorMessage = "Answer all 3 security questions before continuing."
+                        return@Button
                     }
                     onContinue(createdPin, answers)
                 },
@@ -948,14 +959,35 @@ private fun PermissionsScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     var permissionState by remember(selectedTextEngine) {
-        mutableStateOf(buildPermissionState(context, selectedTextEngine))
+        mutableStateOf(
+            PermissionReviewState(
+                accessibilityGranted = false,
+                overlayGranted = false,
+                deviceAdminGranted = false,
+                privateStorageReady = false,
+            ),
+        )
+    }
+    var batteryOptimizationExempt by remember { mutableStateOf(false) }
+    var isResolvingPermissions by remember { mutableStateOf(true) }
+
+    suspend fun resolvePermissions() {
+        val snapshot = readPermissionsUiSnapshot(context)
+        permissionState = snapshot.permissionState
+        batteryOptimizationExempt = snapshot.batteryOptimizationExempt
+        isResolvingPermissions = false
+    }
+
+    LaunchedEffect(selectedTextEngine) {
+        resolvePermissions()
     }
 
     DisposableEffect(lifecycleOwner, selectedTextEngine) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                permissionState = buildPermissionState(context, selectedTextEngine)
+                scope.launch { resolvePermissions() }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -996,6 +1028,7 @@ private fun PermissionsScreen(
                 title = "Accessibility Service",
                 description = "Needed so HaramVeil can read the visible app UI tree and catch risky text before taking any screenshot.",
                 isGranted = permissionState.accessibilityGranted,
+                isResolving = isResolvingPermissions,
                 buttonLabel = "Open Accessibility Settings",
                 onGrant = { openHaramVeilAccessibilitySettings(context) },
             )
@@ -1003,6 +1036,7 @@ private fun PermissionsScreen(
                 title = "Draw Over Apps",
                 description = "Needed to place the Veil overlay on top of risky content and guide you back to safety.",
                 isGranted = permissionState.overlayGranted,
+                isResolving = isResolvingPermissions,
                 buttonLabel = "Open Overlay Permission",
                 onGrant = { openOverlaySettings(context) },
             )
@@ -1010,21 +1044,30 @@ private fun PermissionsScreen(
                 title = "Device Admin",
                 description = "Needed later for uninstall resistance and lockdown hardening, especially after a block event.",
                 isGranted = permissionState.deviceAdminGranted,
+                isResolving = isResolvingPermissions,
                 buttonLabel = "Open Device Admin",
                 onGrant = { openDeviceAdminPrompt(context) },
             )
             PermissionCard(
                 title = "Battery Optimization Exemption",
                 description = "Needed so the system does not pause HaramVeil's background monitoring, especially on Samsung and Xiaomi devices.",
-                isGranted = isBatteryOptimizationExempt(context),
+                isGranted = batteryOptimizationExempt,
+                isResolving = isResolvingPermissions,
                 buttonLabel = "Request Exemption",
-                onGrant = { requestBatteryOptimizationExemption(context) },
+                onGrant = {
+                    requestBatteryOptimizationExemption(context)
+                    scope.launch {
+                        delay(BatteryExemptionRefreshDelayMs)
+                        resolvePermissions()
+                    }
+                },
             )
             if (selectedTextEngine == TextRecognitionEngine.FOSS_ONNX) {
                 PermissionCard(
                     title = "Private model storage",
                     description = "HaramVeil stores the OCR model inside app-private storage. No broad storage permission is requested, but you can review the app info page here.",
                     isGranted = permissionState.privateStorageReady,
+                    isResolving = isResolvingPermissions,
                     buttonLabel = "Open App Info",
                     onGrant = { openAppInfo(context) },
                 )
@@ -1327,6 +1370,7 @@ private fun PermissionCard(
     isGranted: Boolean,
     buttonLabel: String,
     onGrant: () -> Unit,
+    isResolving: Boolean = false,
 ) {
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(
@@ -1349,14 +1393,14 @@ private fun PermissionCard(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                PermissionStatusPill(isGranted = isGranted)
+                PermissionStatusPill(isGranted = isGranted, isResolving = isResolving)
             }
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (!isGranted) {
+            if (!isGranted && !isResolving) {
                 Text(
                     text = "This feature will not work properly until you grant it.",
                     style = MaterialTheme.typography.bodySmall,
@@ -1369,28 +1413,42 @@ private fun PermissionCard(
             ) {
                 Text(buttonLabel)
             }
+            if (isResolving) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.secondary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun PermissionStatusPill(isGranted: Boolean) {
-    val backgroundColor = if (isGranted) {
-        MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f)
-    } else {
-        MaterialTheme.colorScheme.error.copy(alpha = 0.16f)
+private fun PermissionStatusPill(
+    isGranted: Boolean,
+    isResolving: Boolean = false,
+) {
+    val backgroundColor = when {
+        isGranted -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f)
+        isResolving -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)
+        else -> MaterialTheme.colorScheme.error.copy(alpha = 0.16f)
     }
-    val textColor = if (isGranted) {
-        MaterialTheme.colorScheme.secondary
-    } else {
-        MaterialTheme.colorScheme.error
+    val textColor = when {
+        isGranted -> MaterialTheme.colorScheme.secondary
+        isResolving -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.error
     }
     Surface(
         color = backgroundColor,
         shape = RoundedCornerShape(100.dp),
     ) {
         Text(
-            text = if (isGranted) "Granted" else "Missing",
+            text = when {
+                isGranted -> "Granted"
+                isResolving -> "Checking"
+                else -> "Missing"
+            },
             style = MaterialTheme.typography.labelMedium,
             color = textColor,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1668,28 +1726,30 @@ private fun onboardingBrush(): Brush =
         ),
     )
 
-private fun buildPermissionState(
-    context: Context,
-    selectedTextEngine: TextRecognitionEngine,
-): PermissionReviewState {
-    val accessibilityGranted = isHaramVeilAccessibilityServiceEnabled(context)
-    val overlayGranted = Settings.canDrawOverlays(context)
-    val deviceAdminGranted = isDeviceAdminEnabled(context)
-    return PermissionReviewState(
-        accessibilityGranted = accessibilityGranted,
-        overlayGranted = overlayGranted,
-        deviceAdminGranted = deviceAdminGranted,
-        privateStorageReady = true,
-    )
-}
+private data class PermissionsUiSnapshot(
+    val permissionState: PermissionReviewState,
+    val batteryOptimizationExempt: Boolean,
+)
 
-private fun isDeviceAdminEnabled(context: Context): Boolean {
-    return DeviceAdminController.isEnabled(context)
-}
+private suspend fun readPermissionsUiSnapshot(
+    context: Context,
+): PermissionsUiSnapshot =
+    withContext(Dispatchers.IO) {
+        PermissionsUiSnapshot(
+            permissionState = PermissionReviewState(
+                accessibilityGranted = isHaramVeilAccessibilityServiceEnabled(context),
+                overlayGranted = Settings.canDrawOverlays(context),
+                deviceAdminGranted = DeviceAdminController.isEnabled(context),
+                privateStorageReady = true,
+            ),
+            batteryOptimizationExempt = isBatteryOptimizationExempt(context),
+        )
+    }
 
 private fun openOverlaySettings(context: Context) {
-    context.startActivity(
-        Intent(
+    startSettingsActivity(
+        context = context,
+        intent = Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:${context.packageName}"),
         ).apply {
@@ -1706,8 +1766,9 @@ private fun openDeviceAdminPrompt(context: Context) {
 }
 
 private fun openAppInfo(context: Context) {
-    context.startActivity(
-        Intent(
+    startSettingsActivity(
+        context = context,
+        intent = Intent(
             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
             Uri.fromParts("package", context.packageName, null),
         ).apply {
@@ -1716,12 +1777,38 @@ private fun openAppInfo(context: Context) {
     )
 }
 
+private fun startSettingsActivity(
+    context: Context,
+    intent: Intent,
+) {
+    runCatching {
+        context.startActivity(intent)
+    }.onFailure { throwable ->
+        DebugLog.w(context, OnboardingLogTag) {
+            "Could not open ${intent.action}: ${throwable.javaClass.simpleName}: ${throwable.message}"
+        }
+    }
+}
+
+/**
+ * Runs a persist step off the main thread and then navigates. A persistence failure must never
+ * escape into the composition scope, otherwise onboarding crashes without navigating anywhere.
+ */
 private fun launchPersistAndNavigate(
     scope: CoroutineScope,
+    context: Context,
     action: suspend () -> Unit,
 ) {
     scope.launch {
-        action()
+        try {
+            action()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            DebugLog.w(context, OnboardingLogTag) {
+                "Onboarding step failed and was not navigated: ${throwable.javaClass.simpleName}: ${throwable.message}"
+            }
+        }
     }
 }
 
@@ -1733,7 +1820,7 @@ private fun isBatteryOptimizationExempt(context: Context): Boolean {
 
 private fun requestBatteryOptimizationExemption(context: Context) {
     if (isBatteryOptimizationExempt(context)) return
-    try {
+    val requested = runCatching {
         context.startActivity(
             Intent(
                 Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
@@ -1742,13 +1829,13 @@ private fun requestBatteryOptimizationExemption(context: Context) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             },
         )
-    } catch (_: Exception) {
-        // Fallback: open the general battery optimization list.
-        context.startActivity(
-            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-        )
-    }
+    }.isSuccess
+    if (requested) return
+    startSettingsActivity(
+        context = context,
+        intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        },
+    )
 }
 

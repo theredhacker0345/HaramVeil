@@ -54,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -72,6 +73,8 @@ import com.haramveil.ui.InstalledAppIcon
 import com.haramveil.ui.LockdownDurationOption
 import com.haramveil.ui.SectionLabel
 import com.haramveil.ui.StatusPill
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -95,11 +98,13 @@ fun SettingsScreen(
     onStatsRetentionSelected: (Int) -> Unit,
 ) {
     val context = LocalContext.current
-    val versionLabel = remember(context) {
-        runCatching {
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            "${packageInfo.versionName} (${packageInfo.longVersionCode})"
-        }.getOrDefault("1.0.0")
+    val versionLabel by produceState(initialValue = "1.0.0", context) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                "${packageInfo.versionName} (${packageInfo.longVersionCode})"
+            }.getOrDefault("1.0.0")
+        }
     }
     var draftKeyword by rememberSaveable { mutableStateOf("") }
     var draftDomain by rememberSaveable { mutableStateOf("") }

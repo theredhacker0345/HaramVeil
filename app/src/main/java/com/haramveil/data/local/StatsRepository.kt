@@ -20,17 +20,30 @@ package com.haramveil.data.local
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Duration
 
 class StatsRepository private constructor(
@@ -39,54 +52,55 @@ class StatsRepository private constructor(
     private val applicationContext = context.applicationContext
     private val packageManager = applicationContext.packageManager
 
-    // The database requires a PIN hash to open (SQLCipher). If no PIN is set yet
-    // (e.g., user cleared app data but accessibility service is still enabled),
-    // we gracefully degrade to a no-op mode instead of crashing.
-    private val dao: BlockEventDao? = runCatching {
-        HaramVeilDatabase.getInstance(applicationContext).blockEventDao()
-    }.getOrElse { null }
-
+    // The database can only open once a PIN hash exists (SQLCipher). It stays null until then
+    // and is retried, so a service started before onboarding still reports real numbers later.
+    private val daoState = MutableStateFlow<BlockEventDao?>(null)
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val hasLoadedSnapshotMutable = MutableStateFlow(false)
 
-    val allEvents: StateFlow<List<BlockEvent>> = (dao?.getAll() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+    @Volatile
+    private var lastDaoFailureMessage: String? = null
 
-    val todayEvents: StateFlow<List<BlockEvent>> = (dao?.getToday() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+    private val allEventsSource = daoFlow<List<BlockEvent>>(fallback = emptyList()) { dao -> dao.getAll() }
+    private val todayEventsSource = daoFlow<List<BlockEvent>>(fallback = emptyList()) { dao -> dao.getToday() }
+    private val thisWeekEventsSource =
+        daoFlow<List<BlockEvent>>(fallback = emptyList()) { dao -> dao.getThisWeek() }
+    private val mostBlockedAppNameSource = daoFlow<String?>(fallback = null) { dao -> dao.getMostBlockedApp() }
+    private val mostBlockedAppRecordSource =
+        daoFlow<MostBlockedAppRecord?>(fallback = null) { dao -> dao.getMostBlockedAppRecord() }
 
-    val thisWeekEvents: StateFlow<List<BlockEvent>> = (dao?.getThisWeek() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+    val allEvents: StateFlow<List<BlockEvent>> = allEventsSource
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), emptyList())
+
+    val todayEvents: StateFlow<List<BlockEvent>> = todayEventsSource
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), emptyList())
+
+    val thisWeekEvents: StateFlow<List<BlockEvent>> = thisWeekEventsSource
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), emptyList())
 
     val allTimeCount: StateFlow<Int> = allEvents
         .map { events -> events.size }
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), 0)
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), 0)
 
     val todayCount: StateFlow<Int> = todayEvents
         .map { events -> events.size }
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), 0)
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), 0)
 
     val thisWeekCount: StateFlow<Int> = thisWeekEvents
         .map { events -> events.size }
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), 0)
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), 0)
 
-    val mostBlockedAppName: StateFlow<String?> = (dao?.getMostBlockedApp() ?: kotlinx.coroutines.flow.flowOf(null))
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), null)
+    val mostBlockedAppName: StateFlow<String?> = mostBlockedAppNameSource
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), null)
 
-    val mostBlockedAppRecord: StateFlow<MostBlockedAppRecord?> = (dao?.getMostBlockedAppRecord() ?: kotlinx.coroutines.flow.flowOf(null))
-        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), null)
+    val mostBlockedAppRecord: StateFlow<MostBlockedAppRecord?> = mostBlockedAppRecordSource
+        .stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), null)
 
     val hasLoadedSnapshot: StateFlow<Boolean> = hasLoadedSnapshotMutable.asStateFlow()
 
     init {
-        if (dao != null) {
-            repositoryScope.launch {
-                dao.getAll().first()
-                hasLoadedSnapshotMutable.value = true
-            }
-        } else {
-            hasLoadedSnapshotMutable.value = true
-        }
+        repositoryScope.launch { resolveDaoWithRetry() }
+        repositoryScope.launch { awaitFirstSnapshot() }
     }
 
     suspend fun logBlock(
@@ -96,7 +110,7 @@ class StatsRepository private constructor(
         lockdownMs: Long,
         appName: String? = null,
     ) {
-        val activeDao = dao ?: return
+        val activeDao = daoState.value ?: resolveDaoOrNull() ?: return
         activeDao.insertEvent(
             BlockEvent(
                 packageName = packageName,
@@ -111,22 +125,78 @@ class StatsRepository private constructor(
 
     fun countByMode(
         mode: Int,
-    ): StateFlow<Int> {
-        val flow = dao?.getCountByMode(mode.coerceIn(minimumValue = 1, maximumValue = 3))
-            ?: kotlinx.coroutines.flow.flowOf(0)
-        return flow.stateIn(repositoryScope, SharingStarted.WhileSubscribed(5_000L), 0)
-    }
+    ): StateFlow<Int> = daoFlow<Int>(fallback = 0) { dao ->
+        dao.getCountByMode(mode.coerceIn(minimumValue = 1, maximumValue = 3))
+    }.stateIn(repositoryScope, SharingStarted.WhileSubscribed(StopTimeoutMs), 0)
 
     suspend fun clearHistory() {
-        dao?.deleteAll()
+        (daoState.value ?: resolveDaoOrNull())?.deleteAll()
     }
 
     suspend fun cleanupEventsOlderThan(
         retentionDays: Int,
     ): Int {
-        val activeDao = dao ?: return 0
-        val cutoffTimestamp = System.currentTimeMillis() - Duration.ofDays(retentionDays.toLong()).toMillis()
+        val activeDao = daoState.value ?: resolveDaoOrNull() ?: return 0
+        // A corrupt or zero retention must never produce a cutoff in the future.
+        val safeRetentionDays = retentionDays.coerceAtLeast(MinimumRetentionDays)
+        val cutoffTimestamp = System.currentTimeMillis() - Duration.ofDays(safeRetentionDays.toLong()).toMillis()
         return activeDao.deleteOlderThan(cutoffTimestamp)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun <T> daoFlow(
+        fallback: T,
+        select: (BlockEventDao) -> Flow<T>,
+    ): Flow<T> = daoState
+        .distinctUntilChanged()
+        .flatMapLatest { dao -> dao?.let(select) ?: flowOf(fallback) }
+
+    private suspend fun awaitFirstSnapshot() {
+        daoState.filterNotNull().collect { dao ->
+            val snapshot = try {
+                dao.getAll().first()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                Log.w(LogTag, "Reading the first stats snapshot failed; waiting for a retry.", throwable)
+                null
+            }
+            // Only a real snapshot read may report the stats tab as loaded.
+            hasLoadedSnapshotMutable.value = snapshot != null
+        }
+    }
+
+    private suspend fun resolveDaoWithRetry() {
+        while (currentCoroutineContext().isActive) {
+            if (resolveDaoOrNull() != null) {
+                return
+            }
+            delay(DaoResolveRetryIntervalMs)
+        }
+    }
+
+    private suspend fun resolveDaoOrNull(): BlockEventDao? {
+        daoState.value?.let { dao -> return dao }
+        return withContext(Dispatchers.IO) {
+            val resolvedDao = try {
+                HaramVeilDatabase.getInstance(applicationContext).blockEventDao()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                recordDaoFailure(throwable)
+                null
+            }
+
+            resolvedDao?.also { dao -> daoState.value = dao }
+        }
+    }
+
+    private fun recordDaoFailure(throwable: Throwable) {
+        if (lastDaoFailureMessage == throwable.message) {
+            return
+        }
+        lastDaoFailureMessage = throwable.message
+        Log.w(LogTag, "Stats database is not available yet; retrying every ${RetryIntervalSeconds}s.", throwable)
     }
 
     private fun resolveAppName(
@@ -155,6 +225,12 @@ class StatsRepository private constructor(
     }
 
     companion object {
+        private const val LogTag = "HaramVeilStats"
+        private const val MinimumRetentionDays = 1
+        private const val DaoResolveRetryIntervalMs = 5_000L
+        private const val RetryIntervalSeconds = 5
+        private const val StopTimeoutMs = 5_000L
+
         @Volatile
         private var instance: StatsRepository? = null
 
