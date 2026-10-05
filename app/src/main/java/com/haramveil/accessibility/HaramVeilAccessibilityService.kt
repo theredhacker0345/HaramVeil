@@ -111,16 +111,11 @@ class HaramVeilAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        // serviceInfo's own properties are read-only on recent platform levels, so build a fresh
-        // instance instead of mutating the one the platform handed us.
-        serviceInfo = AccessibilityServiceInfo().apply {
-            canRetrieveWindowContent = true
-            eventTypes = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-            flags = flags or
-                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-            notificationTimeout = 100
-        }
+        // The service configuration (event types, flagReportViewIds|flagIncludeNotImportantViews,
+        // canRetrieveWindowContent, canTakeScreenshot, notificationTimeout) is declared in
+        // res/xml/accessibility_config.xml and applied by the platform when the service is
+        // enabled. Re-asserting it here is unnecessary, and AccessibilityServiceInfo's
+        // properties are read-only from API 36 onwards, so it would not compile.
         if (!collectorsStarted) {
             startCollectors()
             collectorsStarted = true
