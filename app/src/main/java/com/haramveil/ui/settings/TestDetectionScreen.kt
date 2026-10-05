@@ -266,7 +266,13 @@ fun TestDetectionScreen(
                             onClick = {
                                 val previewIntent = Intent(context, VeilOverlayService::class.java)
                                     .setAction(VeilOverlayService.ActionPreview)
-                                context.startService(previewIntent)
+                                runCatching {
+                                    ContextCompat.startForegroundService(context, previewIntent)
+                                }.onFailure { throwable ->
+                                    DebugLog.w(context, "TestDetection") {
+                                        "Could not start VeilOverlayService preview: ${throwable.javaClass.simpleName}"
+                                    }
+                                }
                                 scope.launch {
                                     snackbarHostState.showSnackbar("Veil preview shown")
                                 }

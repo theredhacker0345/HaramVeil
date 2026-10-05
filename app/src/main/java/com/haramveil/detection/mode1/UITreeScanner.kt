@@ -288,7 +288,7 @@ class UITreeScanner {
             if (trimmedEntry.isEmpty()) {
                 return@firstNotNullOfOrNull null
             }
-            if (looksLikeDomainRegex(trimmedEntry)) {
+            if (looksLikeRegex(trimmedEntry)) {
                 val regex = runCatching { Regex(trimmedEntry, RegexOption.IGNORE_CASE) }.getOrNull()
                     ?: return@firstNotNullOfOrNull null
                 candidateDomains.firstOrNull { candidate ->
@@ -310,9 +310,6 @@ class UITreeScanner {
 
     private fun looksLikeRegex(entry: String): Boolean =
         entry.any { character -> character in RegexMetaCharacters }
-
-    private fun looksLikeDomainRegex(entry: String): Boolean =
-        entry.any { character -> character in DomainRegexMetaCharacters }
 
     private fun extractDomainsFromText(text: String): List<String> =
         DomainRegex.findAll(text.lowercase(Locale.ROOT))
@@ -339,7 +336,6 @@ class UITreeScanner {
             '\\',
             '^',
             '$',
-            '.',
             '|',
             '?',
             '*',
@@ -351,8 +347,6 @@ class UITreeScanner {
             '{',
             '}',
         )
-
-        val DomainRegexMetaCharacters = RegexMetaCharacters - '.'
 
         val HighRiskPackages: Set<String> = setOf(
             "com.instagram.android",

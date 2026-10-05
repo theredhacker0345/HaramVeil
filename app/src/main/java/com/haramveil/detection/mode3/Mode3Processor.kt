@@ -80,22 +80,17 @@ class Mode3Processor(
         processorJob = processorScope.launch(dispatcherProvider.default) {
             warmModelSafely()
 
-            DetectionBus.events
-                .filterIsInstance<DetectionEvent.Mode1Triggered>()
+            DetectionBus.mode1WakeRequests
+                .filter { it != null && it.issuedAtEpochMs >= collectorStartedAtMs }
                 .collect { event ->
-                    // DetectionBus replays its newest event to every new collector, so a
-                    // trigger that was issued before this collector started belongs to a
-                    // screen that has already moved on and must not be scanned again.
-                    if (event.trigger.issuedAtEpochMs < collectorStartedAtMs) {
-                        return@collect
-                    }
+                    if (event == null) return@collect
                     try {
-                        processTrigger(event.trigger)
+                        processTrigger(event)
                     } catch (cancellation: CancellationException) {
                         rethrowCancellation(cancellation)
                     } catch (failure: Exception) {
                         DebugLog.w(applicationContext, LogTag) {
-                            "Mode 3 processing failed for ${event.trigger.scanResult.packageName}: ${failure.message}"
+                            "Mode 3 processing failed for ${event.scanResult.packageName}: ${failure.message}"
                         }
                     }
                 }

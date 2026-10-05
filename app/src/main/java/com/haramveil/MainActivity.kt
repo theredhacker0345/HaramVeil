@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        ProtectionNotificationHelper.requestNotificationPermissionIfNeeded(this)
+
         setContent {
             HaramVeilTheme {
                 val onboardingViewModel: OnboardingViewModel = viewModel()
