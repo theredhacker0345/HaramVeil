@@ -40,6 +40,7 @@ class ProtectionHealthWorker(
         // a CancellationException, which must propagate for structured cancellation.
         return try {
             runHealthCheck(applicationContext)
+            Result.success()
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Throwable) {

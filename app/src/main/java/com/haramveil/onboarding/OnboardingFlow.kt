@@ -96,6 +96,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
@@ -106,6 +107,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.haramveil.R
 import com.haramveil.accessibility.isHaramVeilAccessibilityServiceEnabled
 import com.haramveil.accessibility.openHaramVeilAccessibilitySettings
 import com.haramveil.data.models.InstalledAppInfo
@@ -117,8 +119,17 @@ import com.haramveil.security.DeviceAdminController
 import com.haramveil.security.SecurityQuestionsManager
 import com.haramveil.service.HaramVeilProtectionController
 import com.haramveil.ui.HaramVeilMainShell
+import com.haramveil.ui.security.RequiredPinLength
+import com.haramveil.utils.DebugLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private const val OnboardingLogTag = "HaramVeilOnboarding"
+private const val BatteryExemptionRefreshDelayMs = 1_500L
 
 private enum class AppDestination(
     val route: String,

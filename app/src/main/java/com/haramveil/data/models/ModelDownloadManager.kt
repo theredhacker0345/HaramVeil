@@ -99,7 +99,11 @@ class ModelDownloadManager(
                     remindUser = false,
                 )
             } catch (retryable: IOException) {
-                AttemptOutcome.Retry(retryable.message ?: "RapidOCR model download was interrupted.")
+                // An interrupted transfer resumes from the retained .part file.
+                AttemptOutcome.Retry(
+                    reason = retryable.message ?: "RapidOCR model download was interrupted.",
+                    discardPartial = false,
+                )
             } catch (failure: Exception) {
                 AttemptOutcome.Rejected(
                     reason = failure.message ?: "RapidOCR model download failed.",

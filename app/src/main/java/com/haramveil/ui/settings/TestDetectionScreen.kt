@@ -54,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -67,6 +68,7 @@ import com.haramveil.ui.HaramVeilWordmarkHeader
 import com.haramveil.ui.SectionLabel
 import com.haramveil.ui.StatusPill
 import com.haramveil.utils.DetectionBus
+import com.haramveil.utils.DebugLog
 import com.haramveil.utils.Mode1WakeRequest
 import kotlinx.coroutines.launch
 
@@ -266,7 +268,7 @@ fun TestDetectionScreen(
                             onClick = {
                                 val previewIntent = Intent(context, VeilOverlayService::class.java)
                                     .setAction(VeilOverlayService.ActionPreview)
-                                runCatching {
+                                runCatching<Unit> {
                                     ContextCompat.startForegroundService(context, previewIntent)
                                 }.onFailure { throwable ->
                                     DebugLog.w(context, "TestDetection") {

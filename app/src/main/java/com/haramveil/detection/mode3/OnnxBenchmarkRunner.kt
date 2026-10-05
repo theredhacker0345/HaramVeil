@@ -80,8 +80,8 @@ class OnnxBenchmarkRunner(
 
     private suspend fun benchmarkModel(model: VisualModelOption): Long? {
         val modelFile = stageModelFile(model) ?: return null
-        try {
-            return measureLatency(model, modelFile)
+        return try {
+            measureLatency(model, modelFile)
         } catch (cancellation: CancellationException) {
             rethrowCancellation(cancellation)
         } catch (failure: Exception) {

@@ -18,4 +18,6 @@
     <string name="security_question_left_handed_family_member">Do you have a left-handed family member?</string>
     <string name="security_question_first_friend_neighborhood">Was your first close friend from your neighborhood?</string>
     <string name="security_question_memorized_surah_before_twelve">Did you memorize a surah before age 12?</string>
+    <string name="onboarding_pin_setup_subtitle">Create a 6-digit PIN. It protects your settings and is required to remove HaramVeil.</string>
+    <string name="pin_setup_security_storage_note">Your recovery answers are stored only as bcrypt cost-12 hashes on this device. They are never uploaded.</string>
 </resources>

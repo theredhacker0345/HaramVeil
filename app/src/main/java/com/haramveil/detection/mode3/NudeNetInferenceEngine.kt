@@ -85,7 +85,10 @@ class NudeNetInferenceEngine(
             val startedAt = SystemClock.elapsedRealtime()
             tensor.use { inputTensor ->
                 session.run(mapOf(resolveInputName(session) to inputTensor)).use { outputs ->
-                    val rawOutput = outputs.values.map { it.value }.firstOrNull()
+                    // OrtSession.Result is Iterable<Map.Entry<String, OnnxValue>>: mapping the entries yields the
+                    // raw tensor carrier. Reading `Result.value` or `Result.getValue()` would hand
+                    // back the OnnxValue wrapper and every score decode would come back empty.
+                    val rawOutput = outputs.map { entry -> entry.value }.firstOrNull()
                     val resolvedLabels = resolveLabels(
                         session = session,
                         shape = outputShape,
@@ -311,7 +314,6 @@ class NudeNetInferenceEngine(
             .map { token -> token.trim().removePrefix(":").trim().trim('"', '\'', ' ', '[', ']') }
             .filter { token -> token.isNotBlank() && !token.all { character -> character.isDigit() } }
             .toList()
-            .ifEmpty { null }
     }
 
     /**

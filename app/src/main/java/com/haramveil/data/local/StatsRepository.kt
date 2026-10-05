@@ -34,7 +34,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -147,8 +146,9 @@ class StatsRepository private constructor(
     private fun <T> daoFlow(
         fallback: T,
         select: (BlockEventDao) -> Flow<T>,
+    // daoState is already a StateFlow, so it de-duplicates on its own; applying
+    // distinctUntilChanged() on top of it is deprecated and has no effect.
     ): Flow<T> = daoState
-        .distinctUntilChanged()
         .flatMapLatest { dao -> dao?.let(select) ?: flowOf(fallback) }
 
     private suspend fun awaitFirstSnapshot() {

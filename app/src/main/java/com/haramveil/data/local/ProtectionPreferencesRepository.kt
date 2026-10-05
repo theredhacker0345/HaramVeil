@@ -228,9 +228,9 @@ class ProtectionPreferencesRepository(
     ) {
         context.haramVeilPreferencesDataStore.edit { preferences ->
             preferences[HaramVeilPreferenceKeys.TopCapturePercent] =
-                topCapturePercent.coerceIn(minimumValue = MinTopCapturePercent, maximumValue = MaxTopCapturePercent).toLong()
+                topCapturePercent.coerceIn(MinTopCapturePercent.toInt(), MaxTopCapturePercent.toInt()).toLong()
             preferences[HaramVeilPreferenceKeys.MiddleCapturePercent] =
-                middleCapturePercent.coerceIn(minimumValue = MinMiddleCapturePercent, maximumValue = MaxMiddleCapturePercent).toLong()
+                middleCapturePercent.coerceIn(MinMiddleCapturePercent.toInt(), MaxMiddleCapturePercent.toInt()).toLong()
         }
     }
 

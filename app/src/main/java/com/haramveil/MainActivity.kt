@@ -27,6 +27,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.haramveil.onboarding.HaramVeilRoot
 import com.haramveil.onboarding.OnboardingViewModel
+import com.haramveil.service.ProtectionNotificationHelper
 import com.haramveil.ui.theme.HaramVeilTheme
 
 class MainActivity : ComponentActivity() {

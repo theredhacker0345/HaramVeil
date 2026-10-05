@@ -40,7 +40,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -80,17 +81,20 @@ class Mode3Processor(
         processorJob = processorScope.launch(dispatcherProvider.default) {
             warmModelSafely()
 
+            // mode1WakeRequests is a conflating StateFlow, so a burst of wake requests collapses
+            // to the newest one and a replayed request from before this collector started is
+            // dropped by the timestamp check instead of re-running inference on a stale screen.
             DetectionBus.mode1WakeRequests
-                .filter { it != null && it.issuedAtEpochMs >= collectorStartedAtMs }
-                .collect { event ->
-                    if (event == null) return@collect
+                .filterNotNull()
+                .filter { wakeRequest -> wakeRequest.issuedAtEpochMs >= collectorStartedAtMs }
+                .collect { wakeRequest ->
                     try {
-                        processTrigger(event)
+                        processTrigger(wakeRequest)
                     } catch (cancellation: CancellationException) {
                         rethrowCancellation(cancellation)
                     } catch (failure: Exception) {
                         DebugLog.w(applicationContext, LogTag) {
-                            "Mode 3 processing failed for ${event.scanResult.packageName}: ${failure.message}"
+                            "Mode 3 processing failed for ${wakeRequest.scanResult.packageName}: ${failure.message}"
                         }
                     }
                 }

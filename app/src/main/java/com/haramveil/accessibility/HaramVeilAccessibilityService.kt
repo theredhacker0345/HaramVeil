@@ -111,7 +111,9 @@ class HaramVeilAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        serviceInfo = serviceInfo.apply {
+        // serviceInfo's own properties are read-only on recent platform levels, so build a fresh
+        // instance instead of mutating the one the platform handed us.
+        serviceInfo = AccessibilityServiceInfo().apply {
             canRetrieveWindowContent = true
             eventTypes = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
             flags = flags or

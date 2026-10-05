@@ -44,7 +44,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val RequiredSecurityQuestionCount = 3
+internal const val RequiredSecurityQuestionCount = 3
 
 data class BenchmarkUiState(
     val isRunning: Boolean = false,

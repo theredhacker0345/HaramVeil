@@ -147,7 +147,7 @@ class VeilOverlayService : Service() {
      * flips is replay cache and nothing after it can be lost.
      */
     private fun startCollectors() {
-        serviceScope.launch(CoroutineStart.UNDISPATCHED) {
+        serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
             DetectionBus.events.collect { event ->
                 val fromReplayCache = !collectorSubscribedLive.get()
                 guardEventHandling(event, fromReplayCache)
