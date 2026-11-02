@@ -165,7 +165,7 @@ class Mode3Processor(
             // same-hash frame is analysed again, keeping moving content covered.
             val contentHash = trigger.nodeHash
             if (contentHash != 0) {
-                val lastRun = lastInferenceByPackage[packageName]
+                val lastRun = synchronized(lastInferenceByPackage) { lastInferenceByPackage[packageName] }
                 if (lastRun != null &&
                     lastRun.contentHash == contentHash &&
                     now - lastRun.completedAtMs < UnchangedContentRescanIntervalMs

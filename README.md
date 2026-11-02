@@ -42,7 +42,7 @@ HaramVeil employs a triple-threat detection pipeline to ensure maximum coverage:
 *   **Deep Learning**: Runs state-of-the-art **NudeNet v3.4** deep learning models.
 *   **Imagery Detection**: Detects explicit imagery, suggestive poses, and specific body parts.
 *   **Local Inference**: Operates locally using ONNX Runtime. Your screen data never leaves the device.
-*   **Multiple Models**: Choose between a 6MB "Mobile" model for speed and a 15MB "Enhanced" model for better accuracy.
+*   **Multiple Models**: A ~12MB "320 (Bundled)" model ships by default for speed, and a higher-accuracy ~100MB "640 (Enhanced)" model can be imported by the user for better accuracy.
 
 ---
 

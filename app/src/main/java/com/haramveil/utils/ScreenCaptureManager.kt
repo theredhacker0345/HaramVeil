@@ -27,6 +27,7 @@ import android.graphics.ColorSpace
 import android.graphics.Rect
 import android.hardware.HardwareBuffer
 import android.os.Build
+import android.os.SystemClock
 import android.view.Display
 import androidx.core.content.ContextCompat
 import com.haramveil.data.models.ProtectionSettings
@@ -93,39 +94,46 @@ class ScreenCaptureManager(
             CaptureMutex.withLock {
                 var lastAttemptFailed = false
                 repeat(CaptureAttempts) { attempt ->
-                    if (attempt > 0) {
-                        // takeScreenshot enforces a cooldown after a failed request
-                        // (ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT); retry immediately
-                        // would just fail again.
-                        delay(CaptureRetryDelayMs)
+                    // The platform rate-limits takeScreenshot to one request per second
+                    // (ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT). The mutex serialises
+                    // the callers but not the spacing, so before each request wait out the
+                    // remainder of the window since the last attempt; the retry delay then
+                    // only covers the failure case.
+                    val sinceLastAttemptMs = SystemClock.elapsedRealtime() - lastCaptureAttemptAtMs
+                    if (sinceLastAttemptMs < ScreenshotMinIntervalMs) {
+                        delay(ScreenshotMinIntervalMs - sinceLastAttemptMs)
                     }
+                    lastCaptureAttemptAtMs = SystemClock.elapsedRealtime()
                     val screenshotResult = withTimeoutOrNull(ScreenshotTimeoutMs) {
                         awaitScreenshot(accessibilityService)
                     }
                     if (screenshotResult == null) {
                         lastAttemptFailed = true
+                        if (attempt < CaptureAttempts - 1) {
+                            delay(CaptureRetryDelayMs)
+                        }
                         return@repeat
                     }
-                val hardwareBuffer: HardwareBuffer = screenshotResult.hardwareBuffer
-                try {
-                    val consumed = consume(hardwareBuffer, screenshotResult.colorSpace)
-                    if (consumed != null) {
-                        return@withLock consumed
+                    val hardwareBuffer: HardwareBuffer = screenshotResult.hardwareBuffer
+                    try {
+                        val consumed = consume(hardwareBuffer, screenshotResult.colorSpace)
+                        if (consumed != null) {
+                            return@withLock consumed
+                        }
+                        lastAttemptFailed = true
+                    } finally {
+                        runCatching { hardwareBuffer.close() }
                     }
-                    lastAttemptFailed = true
-                } finally {
-                    runCatching { hardwareBuffer.close() }
+                    // Null from consume() means the buffer was unusable; retry.
                 }
-                // Null from consume() means the buffer was unusable; retry.
-            }
-            if (lastAttemptFailed) {
-                DebugLog.w(accessibilityService, "HaramVeilCapture") {
-                    "Screenshot capture unavailable after $CaptureAttempts attempts."
+                if (lastAttemptFailed) {
+                    DebugLog.w(accessibilityService, "HaramVeilCapture") {
+                        "Screenshot capture unavailable after $CaptureAttempts attempts."
+                    }
                 }
+                null
             }
-            null
         }
-    }
 
     fun prepareForVisualModel(
         bitmap: Bitmap,
@@ -250,8 +258,14 @@ class ScreenCaptureManager(
         const val CaptureAttempts = 2
         const val CaptureRetryDelayMs = 150L
 
+        /** Platform cooldown between takeScreenshot requests on the same display. */
+        const val ScreenshotMinIntervalMs = 1_000L
+
         // Process-wide: AccessibilityService.takeScreenshot enforces one in-flight request
         // per display, and a failed request usually needs a cooldown before it can succeed.
         val CaptureMutex = Mutex()
+
+        @Volatile
+        var lastCaptureAttemptAtMs = 0L
     }
 }

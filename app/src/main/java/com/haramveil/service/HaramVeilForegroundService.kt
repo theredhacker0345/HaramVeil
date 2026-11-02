@@ -259,7 +259,11 @@ class HaramVeilForegroundService : Service() {
         const val ActionStart = "com.haramveil.service.action.START"
         const val ActionStop = "com.haramveil.service.action.STOP"
         const val HeartbeatIntervalMs = 30_000L
-        const val ScreenOffHeartbeatIntervalMs = 15 * 60 * 1_000L
+
+        // Must stay under ProtectionBootstrapStore's heartbeat-staleness threshold (2 min),
+        // otherwise the health watchdog declares the live service dead and restarts it in a
+        // loop while the screen is off.
+        const val ScreenOffHeartbeatIntervalMs = 90_000L
         private const val LogTag = "HaramVeilRuntime"
     }
 
