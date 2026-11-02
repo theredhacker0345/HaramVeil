@@ -520,9 +520,13 @@ class ModelDownloadManager(
 
         private val downloadMutex = Mutex()
 
+        // Must match the bundled dictionary (FossOcrEngine.BundledDictionaryAssetName):
+        // the en_PP-OCRv5 export decodes against ppocrv5_en_dict.txt, so the update
+        // channel ships the same model family. A latin model here would decode against
+        // the wrong vocabulary and corrupt every OCR read.
         const val ModelUrl =
-            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.7.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile_infer.onnx"
+            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.7.0/onnx/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile_infer.onnx"
         const val ModelSha256 =
-            "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a"
+            "c3461add59bb4323ecba96a492ab75e06dda42467c9e3d0c18db5d1d21924be8"
     }
 }

@@ -30,6 +30,7 @@ import android.os.SystemClock
 import com.haramveil.data.models.ModelDownloadManager
 import com.haramveil.utils.DispatcherProvider
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.exp
 import kotlin.math.max
@@ -130,7 +131,13 @@ class FossOcrEngine(
             )
         }
 
-    override fun isAvailable(): Boolean = modelDownloadManager.modelFile().isFile
+    /**
+     * FOSS builds have no INTERNET permission, so the engine ships a bundled model in
+     * the flavor assets (`fossOnnx/assets/`). The downloader remains the optional path
+     * for a newer model; when neither is present the engine is unavailable.
+     */
+    override fun isAvailable(): Boolean =
+        modelDownloadManager.modelFile().isFile || hasBundledModel()
 
     fun close() {
         synchronized(sessionLock) {
@@ -140,20 +147,44 @@ class FossOcrEngine(
         }
     }
 
+    private fun hasBundledModel(): Boolean =
+        runCatching {
+            context.assets.open(BundledModelAssetName).use { true }
+        }.getOrDefault(false)
+
     private fun openSession(): OrtSession? {
         cachedSession?.let { return it }
 
         synchronized(sessionLock) {
             cachedSession?.let { return it }
             val ortEnvironment = environment ?: return null
+
+            val downloadedFile = modelDownloadManager.modelFile()
+            val modelPath = when {
+                downloadedFile.isFile -> downloadedFile.absolutePath
+                hasBundledModel() -> copyBundledModelToCache()?.absolutePath ?: return null
+                else -> return null
+            }
             return runCatching {
                 OrtSession.SessionOptions().use { sessionOptions ->
-                    ortEnvironment.createSession(
-                        modelDownloadManager.modelFile().absolutePath,
-                        sessionOptions,
-                    )
+                    ortEnvironment.createSession(modelPath, sessionOptions)
                 }
             }.getOrNull()?.also { cachedSession = it }
+        }
+    }
+
+    private fun copyBundledModelToCache(): File? {
+        val cachedFile = File(context.cacheDir, BundledModelCacheName)
+        return runCatching {
+            context.assets.open(BundledModelAssetName).use { inputStream ->
+                cachedFile.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            cachedFile
+        }.getOrNull() ?: run {
+            cachedFile.delete()
+            null
         }
     }
 
@@ -169,10 +200,43 @@ class FossOcrEngine(
 
             val metadataValue = resolveCharacterMetadata(session)
             val parsedCharacters = parseCharacterMetadata(metadataValue)
+            if (parsedCharacters.size > MinimumViableCharacterCount) {
+                cachedCharacters = parsedCharacters
+                return parsedCharacters
+            }
+
+            // The PP-OCRv5 exports carry no `character` metadata; the dictionary file
+            // bundled next to the model is the real vocabulary. Without this fallback the
+            // decoder would only ever know "blank" and space and every read came back "".
+            // The list is built line-by-line (never comma-joined): dictionary entries can
+            // be a comma or quote themselves, and a split there would shift every CTC
+            // index and silently corrupt the decode.
+            val dictionaryCharacters = loadBundledDictionaryCharacters()
+            if (dictionaryCharacters != null && dictionaryCharacters.size > MinimumViableCharacterCount) {
+                cachedCharacters = dictionaryCharacters
+                return dictionaryCharacters
+            }
+
             cachedCharacters = parsedCharacters
             return parsedCharacters
         }
     }
+
+    /**
+     * Reads the bundled PaddleOCR dictionary as raw lines: `["blank"] + entries + [" "]`,
+     * matching the `use_space_char` convention the model was exported with. Only trailing
+     * empty lines are dropped (EOF newline); a blank entry anywhere else must stay so the
+     * class indices remain aligned with the model output.
+     */
+    private fun loadBundledDictionaryCharacters(): List<String>? =
+        runCatching {
+            context.assets.open(BundledDictionaryAssetName).bufferedReader().use { reader ->
+                reader.readLines().map { line -> line.trimEnd('\r') }
+            }
+        }.getOrNull()
+            ?.let { lines -> lines.dropLastWhile(String::isEmpty) }
+            ?.takeIf { entries -> entries.isNotEmpty() }
+            ?.let { entries -> buildList(entries.size + 2) { add("blank"); addAll(entries); add(" ") } }
 
     private fun resolveCharacterMetadata(session: OrtSession): String? {
         val metadata = runCatching {
@@ -397,10 +461,11 @@ class FossOcrEngine(
         targetHeight: Int,
         targetWidth: Int,
     ): FloatArray {
-        val scaledWidth = min(
-            max((bitmap.width * (targetHeight / bitmap.height.toFloat())).roundToInt(), 1),
-            targetWidth,
-        )
+        val naturalWidth = max((bitmap.width * (targetHeight / bitmap.height.toFloat())).roundToInt(), 1)
+        // PaddleOCR's own resize keeps the full line: when the scaled strip is wider than
+        // the input it squashes the whole line into targetWidth. Truncating instead cut
+        // off the right side of wide strips — exactly where domains and URLs end.
+        val scaledWidth = min(naturalWidth, targetWidth)
         val resizedBitmap = Bitmap.createScaledBitmap(bitmap, scaledWidth, targetHeight, true)
         return try {
             val pixelCount = scaledWidth * targetHeight
@@ -429,8 +494,13 @@ class FossOcrEngine(
         }
     }
 
-    private fun normalizeChannel(channelValue: Int): Float =
-        ((channelValue / 255f) - 0.5f) / 0.5f
+    /**
+     * The RapidOCR PP-OCRv5 ONNX exports already fold the PaddleOCR mean/std
+     * normalisation into the graph: the model was verified offline to decode cleanly
+     * with plain x/255 input, while the classic (x/255 - 0.5) / 0.5 scaling produced
+     * garbage. Do not "restore" the PaddleOCR normalisation here.
+     */
+    private fun normalizeChannel(channelValue: Int): Float = channelValue / 255f
 
     private fun decodeCtcOutput(
         rawOutput: Any?,
@@ -514,6 +584,10 @@ class FossOcrEngine(
         const val DefaultInputHeight = 48
         const val DefaultInputWidth = 320
         const val MinimumContrastDelta = 18
+        const val MinimumViableCharacterCount = 8
+        const val BundledModelAssetName = "en_PP-OCRv5_rec.onnx"
+        const val BundledModelCacheName = "ocr-en_PP-OCRv5_rec.onnx"
+        const val BundledDictionaryAssetName = "ppocrv5_en_dict.txt"
         const val EntrySeparator = ','
         const val QuoteCharacter = '\''
         const val AlternateQuoteCharacter = '"'
