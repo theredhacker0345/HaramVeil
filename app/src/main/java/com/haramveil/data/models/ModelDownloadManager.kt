@@ -259,6 +259,7 @@ class ModelDownloadManager(
         return AttemptOutcome.Completed(targetFile)
     }
 
+    @Suppress("NestedBlockDepth")
     private suspend fun appendResponseBody(
         connection: HttpURLConnection,
         partialFile: File,

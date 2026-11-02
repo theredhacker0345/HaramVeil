@@ -184,6 +184,7 @@ class UITreeScanner {
         return substring(keyword.length).all(Char::isDigit)
     }
 
+    @Suppress("NestedBlockDepth")
     private fun collectVisibleSignals(
         rootNode: AccessibilityNodeInfo,
         isBrowserOrHighRisk: Boolean = false,
