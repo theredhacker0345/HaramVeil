@@ -147,7 +147,9 @@ private enum class SensitiveAction {
 }
 
 private const val SafeWindowDefaultMs = 15 * 60 * 1_000L
-private const val RuntimeStatePollIntervalMs = 1_000L
+// Lockdown countdowns are displayed minute-granular, and the service heartbeats every
+// 30s, so a faster shell poll would only burn battery recomposing identical state.
+private const val RuntimeStatePollIntervalMs = 3_000L
 
 /**
  * Single holder for every value the shell polls. All of them come from binder or

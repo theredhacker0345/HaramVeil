@@ -283,42 +283,64 @@ fun AdvancedSettingsScreen(
                         contentColor = MaterialTheme.colorScheme.secondary,
                     )
                 }
-                val batteryProtectionBlend = remember(frameSkipIntervalMs, mode3InferenceIntervalMs) {
-                    val frameNorm = ((frameSkipIntervalMs - 250f) / 1750f).coerceIn(0f, 1f)
-                    val mode3Norm = ((mode3InferenceIntervalMs - 1000f) / 1000f).coerceIn(0f, 1f)
-                    (frameNorm + mode3Norm) / 2f
+                // Local drag state: persisting a DataStore write on every drag tick
+                // restarts the accessibility collectors mid-drag and makes the knob feel
+                // laggy. Each slider writes its stored value once when the drag finishes.
+                fun blendOf(frameSkip: Int, mode3Interval: Int): Float {
+                    val frameNorm = ((frameSkip - 250f) / 1750f).coerceIn(0f, 1f)
+                    val mode3Norm = ((mode3Interval - 1000f) / 1000f).coerceIn(0f, 1f)
+                    return (frameNorm + mode3Norm) / 2f
+                }
+
+                var batteryBlend by remember(frameSkipIntervalMs, mode3InferenceIntervalMs) {
+                    mutableStateOf(blendOf(frameSkipIntervalMs, mode3InferenceIntervalMs))
                 }
                 SliderControl(
                     label = "Battery vs Protection",
                     description = "Lower keeps scans frequent (max protection). Higher saves battery by spacing scans.",
-                    value = batteryProtectionBlend,
+                    value = batteryBlend,
                     valueRange = 0f..1f,
                     steps = 4,
                     enabled = !strictModeEnabled,
-                    onValueChange = { blend ->
-                        val frameSkip = lerp(250f, 2000f, blend).toInt()
-                        val mode3Interval = lerp(1000f, 2000f, blend).toInt()
+                    onValueChange = { blend -> batteryBlend = blend },
+                    onValueChangeFinished = {
+                        val frameSkip = lerp(250f, 2000f, batteryBlend).toInt().coerceIn(250, 2000)
+                        val mode3Interval = lerp(1000f, 2000f, batteryBlend).toInt().coerceIn(1000, 2000)
                         onFrameSkipIntervalChanged(frameSkip)
                         onMode3InferenceIntervalChanged(mode3Interval)
                     },
                 )
+
+                var frameSkipValue by remember(frameSkipIntervalMs) {
+                    mutableStateOf(frameSkipIntervalMs.toFloat())
+                }
                 SliderControl(
                     label = "Frame skip interval",
-                    description = "$frameSkipIntervalMs ms debounce for Accessibility UI-tree scans",
-                    value = frameSkipIntervalMs.toFloat(),
+                    description = "${frameSkipValue.toInt()} ms debounce for Accessibility UI-tree scans",
+                    value = frameSkipValue,
                     valueRange = 250f..2000f,
                     steps = 6,
                     enabled = !strictModeEnabled,
-                    onValueChange = { onFrameSkipIntervalChanged(it.toInt()) },
+                    onValueChange = { frameSkipValue = it },
+                    onValueChangeFinished = {
+                        onFrameSkipIntervalChanged(frameSkipValue.toInt().coerceIn(250, 2000))
+                    },
                 )
+
+                var mode3IntervalValue by remember(mode3InferenceIntervalMs) {
+                    mutableStateOf(mode3InferenceIntervalMs.toFloat())
+                }
                 SliderControl(
                     label = "Visual inference interval",
-                    description = "$mode3InferenceIntervalMs ms minimum gap between ONNX inferences",
-                    value = mode3InferenceIntervalMs.toFloat(),
+                    description = "${mode3IntervalValue.toInt()} ms minimum gap between ONNX inferences",
+                    value = mode3IntervalValue,
                     valueRange = 1000f..2000f,
                     steps = 3,
                     enabled = !strictModeEnabled,
-                    onValueChange = { onMode3InferenceIntervalChanged(it.toInt()) },
+                    onValueChange = { mode3IntervalValue = it },
+                    onValueChangeFinished = {
+                        onMode3InferenceIntervalChanged(mode3IntervalValue.toInt().coerceIn(1000, 2000))
+                    },
                 )
             }
         }
@@ -343,21 +365,33 @@ fun AdvancedSettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                var topPercentValue by remember(topCapturePercent) {
+                    mutableStateOf(topCapturePercent.toFloat())
+                }
                 SliderControl(
                     label = "Top capture %",
-                    description = "$topCapturePercent% of the screen",
-                    value = topCapturePercent.toFloat(),
+                    description = "${topPercentValue.toInt()}% of the screen",
+                    value = topPercentValue,
                     valueRange = TopCapturePercentRange,
                     steps = TopCapturePercentSteps,
-                    onValueChange = { onTopCapturePercentChanged(it.toInt()) },
+                    onValueChange = { topPercentValue = it },
+                    onValueChangeFinished = {
+                        onTopCapturePercentChanged(topPercentValue.toInt().coerceIn(10, 45))
+                    },
                 )
+                var middlePercentValue by remember(middleCapturePercent) {
+                    mutableStateOf(middleCapturePercent.toFloat())
+                }
                 SliderControl(
                     label = "Middle capture %",
-                    description = "$middleCapturePercent% of the screen",
-                    value = middleCapturePercent.toFloat(),
+                    description = "${middlePercentValue.toInt()}% of the screen",
+                    value = middlePercentValue,
                     valueRange = MiddleCapturePercentRange,
                     steps = MiddleCapturePercentSteps,
-                    onValueChange = { onMiddleCapturePercentChanged(it.toInt()) },
+                    onValueChange = { middlePercentValue = it },
+                    onValueChangeFinished = {
+                        onMiddleCapturePercentChanged(middlePercentValue.toInt().coerceIn(20, 50))
+                    },
                 )
             }
         }
@@ -529,6 +563,7 @@ private fun SliderControl(
     steps: Int,
     enabled: Boolean = true,
     onValueChange: (Float) -> Unit,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -545,6 +580,7 @@ private fun SliderControl(
         Slider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = valueRange,
             steps = steps,
             enabled = enabled,

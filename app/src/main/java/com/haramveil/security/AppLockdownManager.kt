@@ -42,14 +42,10 @@ class AppLockdownManager(
         packageName: String,
         nowEpochMs: Long = System.currentTimeMillis(),
     ): Boolean {
-        val expiryTimestamp = encryptedPreferences.getLong(lockKey(packageName), 0L)
-        if (expiryTimestamp <= 0L) {
-            return false
-        }
+        val record = loadRecord(packageName) ?: return false
 
         val remainingMs = computeRemainingLockdownMs(
-            packageName = packageName,
-            expiryTimestamp = expiryTimestamp,
+            record = record,
             nowEpochMs = nowEpochMs,
         )
         if (remainingMs <= 0L) {
@@ -70,6 +66,7 @@ class AppLockdownManager(
             .putLong(elapsedLockKey(packageName), SystemClock.elapsedRealtime() + effectiveDurationMs)
             .putInt(lockBootCountKey(packageName), currentBootCount())
             .apply()
+        invalidateRecord(packageName)
     }
 
     fun unlockApp(
@@ -80,6 +77,7 @@ class AppLockdownManager(
             .remove(elapsedLockKey(packageName))
             .remove(lockBootCountKey(packageName))
             .apply()
+        invalidateRecord(packageName)
     }
 
     fun activeLockdowns(
@@ -97,31 +95,61 @@ class AppLockdownManager(
         .sortedBy { lockdown -> lockdown.expiresAtEpochMs }
 
     private fun computeRemainingLockdownMs(
-        packageName: String,
-        expiryTimestamp: Long,
+        record: LockdownRecord,
         nowEpochMs: Long,
     ): Long {
-        val wallClockRemainingMs = expiryTimestamp - nowEpochMs
-        val sameBootRemainingMs = remainingElapsedLockdownMs(packageName)
+        val wallClockRemainingMs = record.wallExpiryEpochMs - nowEpochMs
+        val sameBootRemainingMs = record.sameBootRemainingMs()
         if (wallClockRemainingMs <= 0L) {
             return sameBootRemainingMs.coerceAtLeast(0L)
         }
         return maxOf(wallClockRemainingMs, sameBootRemainingMs, 0L)
     }
 
-    private fun remainingElapsedLockdownMs(packageName: String): Long {
-        val storedBootCount = encryptedPreferences.getInt(lockBootCountKey(packageName), 0)
-        val currentBootCount = currentBootCount()
-        if (storedBootCount == 0 || storedBootCount != currentBootCount) {
-            return 0L
+    /**
+     * Per-package record cache with a short TTL. Every TYPE_WINDOW_STATE_CHANGED event
+     * calls isLocked() from the accessibility callback; each direct read goes through
+     * Jetpack EncryptedSharedPreferences (per-key AES decrypt), which is far too slow to
+     * run per event on the main thread. Writes invalidate the record so a fresh lockdown
+     * is honoured at once; the TTL keeps cross-instance staleness bounded.
+     */
+    private fun loadRecord(packageName: String): LockdownRecord? {
+        val now = SystemClock.elapsedRealtime()
+        companionCache[packageName]?.let { cached ->
+            if (now - cached.cachedAtMs < RecordCacheTtlMs) {
+                return cached.record
+            }
         }
 
-        val elapsedLockdownUntil = encryptedPreferences.getLong(elapsedLockKey(packageName), 0L)
-        if (elapsedLockdownUntil == 0L) {
+        val expiryTimestamp = encryptedPreferences.getLong(lockKey(packageName), 0L)
+        val record = if (expiryTimestamp <= 0L) {
+            null
+        } else {
+            val storedBootCount = encryptedPreferences.getInt(lockBootCountKey(packageName), 0)
+            val elapsedUntil = encryptedPreferences.getLong(elapsedLockKey(packageName), 0L)
+            val currentBootCount = currentBootCount()
+            LockdownRecord(
+                wallExpiryEpochMs = expiryTimestamp,
+                elapsedUntilMs = if (storedBootCount != 0 && storedBootCount == currentBootCount) {
+                    elapsedUntil
+                } else {
+                    0L
+                },
+            )
+        }
+        companionCache[packageName] = CachedRecord(record, now)
+        return record
+    }
+
+    private fun invalidateRecord(packageName: String) {
+        companionCache.remove(packageName)
+    }
+
+    private fun LockdownRecord.sameBootRemainingMs(): Long {
+        if (elapsedUntilMs == 0L) {
             return 0L
         }
-
-        return elapsedLockdownUntil - SystemClock.elapsedRealtime()
+        return elapsedUntilMs - SystemClock.elapsedRealtime()
     }
 
     private fun currentBootCount(): Int =
@@ -135,6 +163,16 @@ class AppLockdownManager(
 
     private fun lockBootCountKey(packageName: String): String = "$BootCountLockPrefix$packageName"
 
+    private data class LockdownRecord(
+        val wallExpiryEpochMs: Long,
+        val elapsedUntilMs: Long,
+    )
+
+    private data class CachedRecord(
+        val record: LockdownRecord?,
+        val cachedAtMs: Long,
+    )
+
     private companion object {
         const val PreferenceFileName = "haramveil_lockdowns"
         const val LockPrefix = "lockdown_"
@@ -142,5 +180,11 @@ class AppLockdownManager(
         const val ElapsedLockPrefix = "monotonic_lockdown_elapsed_"
         const val BootCountLockPrefix = "monotonic_lockdown_boot_"
         const val MinimumLockdownDurationMs = 60_000L
+
+        const val RecordCacheTtlMs = 2_000L
+
+        // Shared across instances: lockdowns are written by the accessibility service and
+        // read by the overlay/UI, so a per-instance cache could serve stale state.
+        val companionCache = java.util.concurrent.ConcurrentHashMap<String, CachedRecord>()
     }
 }

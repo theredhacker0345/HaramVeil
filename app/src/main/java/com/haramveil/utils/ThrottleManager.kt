@@ -19,6 +19,7 @@
 package com.haramveil.utils
 
 import android.view.accessibility.AccessibilityNodeInfo
+import com.haramveil.detection.mode1.ExtractedUiSignals
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -42,6 +43,9 @@ class ThrottledScanTrigger(
     val eventType: Int,
     val nodeHash: Int,
     val rootNode: AccessibilityNodeInfo,
+    // Collected during the same tree walk that produced nodeHash so the Mode 1 scan
+    // never has to traverse the accessibility tree a second time.
+    val extractedSignals: ExtractedUiSignals? = null,
     val isBrowser: Boolean = false,
     val isHighRisk: Boolean = false,
     val issuedAtEpochMs: Long = System.currentTimeMillis(),

@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -77,15 +78,23 @@ fun HaramVeilScreenBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    // Themed gradient edges: they were hardcoded to the dark palette, which left nearly
+    // black borders around the light scheme.
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val edgeColors = if (isDark) {
+        listOf(Color(0xFF07121D), Color(0xFF133227))
+    } else {
+        listOf(Color(0xFFDDEBE2), Color(0xFFCDE7D8))
+    }
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF07121D),
+                        edgeColors[0],
                         MaterialTheme.colorScheme.background,
-                        Color(0xFF133227),
+                        edgeColors[1],
                     ),
                 ),
             ),

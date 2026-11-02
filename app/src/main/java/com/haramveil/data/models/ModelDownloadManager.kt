@@ -359,6 +359,16 @@ class ModelDownloadManager(
         title: String = "Finish FOSS OCR setup",
         message: String = "Download the private OCR model to enable the FOSS text engine.",
     ) {
+        // The reminder used to be re-posted on every OCR trigger (about once per second
+        // while a high-risk app was in the foreground), buzzing and re-lighting the
+        // notification. Remind at most once per cooldown window.
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        synchronized(reminderLock) {
+            if (nowMs - lastReminderPostedAtMs < SetupReminderCooldownMs) {
+                return
+            }
+            lastReminderPostedAtMs = nowMs
+        }
         createNotificationChannel()
         NotificationManagerCompat.from(context).notify(
             SetupReminderNotificationId,
@@ -503,6 +513,10 @@ class ModelDownloadManager(
         private const val MaxDownloadAttempts = 2
         private const val FreeSpaceHeadroomBytes = 16L * 1024L * 1024L
         private const val MaxModelBytes = 128L * 1024L * 1024L
+        private const val SetupReminderCooldownMs = 6 * 60 * 60 * 1_000L
+
+        private val reminderLock = Any()
+        private var lastReminderPostedAtMs = 0L
 
         private val downloadMutex = Mutex()
 

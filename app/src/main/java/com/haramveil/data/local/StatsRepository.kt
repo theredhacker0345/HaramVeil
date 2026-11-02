@@ -167,11 +167,16 @@ class StatsRepository private constructor(
     }
 
     private suspend fun resolveDaoWithRetry() {
+        var retryDelayMs = DaoResolveRetryIntervalMs
         while (currentCoroutineContext().isActive) {
             if (resolveDaoOrNull() != null) {
                 return
             }
-            delay(DaoResolveRetryIntervalMs)
+            // The stats DB stays locked until the user sets a PIN, which may never happen;
+            // a fixed 5s retry would wake the coroutine forever. Back off up to 5 minutes —
+            // logBlock() resolves the DAO on demand anyway, so nothing is lost.
+            delay(retryDelayMs)
+            retryDelayMs = (retryDelayMs * 2).coerceAtMost(MaxDaoResolveRetryIntervalMs)
         }
     }
 
@@ -228,6 +233,7 @@ class StatsRepository private constructor(
         private const val LogTag = "HaramVeilStats"
         private const val MinimumRetentionDays = 1
         private const val DaoResolveRetryIntervalMs = 5_000L
+        private const val MaxDaoResolveRetryIntervalMs = 5 * 60 * 1_000L
         private const val RetryIntervalSeconds = 5
         private const val StopTimeoutMs = 5_000L
 

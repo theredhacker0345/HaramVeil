@@ -72,6 +72,9 @@ class Mode3Processor(
     private var consecutiveSlowInferences = 0
     private var thermalRateLimitOverrideMs: Long? = null
 
+    /** package -> (content fingerprint, completion time) of the last real inference. */
+    private val lastInferenceByPackage = HashMap<String, LastInferenceRecord>()
+
     fun start() {
         if (processorJob?.isActive == true) {
             return
@@ -122,6 +125,7 @@ class Mode3Processor(
         lastInferenceStartedAtMs = 0L
         consecutiveSlowInferences = 0
         thermalRateLimitOverrideMs = null
+        synchronized(lastInferenceByPackage) { lastInferenceByPackage.clear() }
     }
 
     fun destroy() {
@@ -154,6 +158,26 @@ class Mode3Processor(
                 )
                 return@withContext
             }
+            val packageName = trigger.scanResult.packageName
+
+            // Inference on provably unchanged content is wasted energy. The tree fingerprint
+            // does not see video pixels, so the skip is bounded: after the rescan interval a
+            // same-hash frame is analysed again, keeping moving content covered.
+            val contentHash = trigger.nodeHash
+            if (contentHash != 0) {
+                val lastRun = lastInferenceByPackage[packageName]
+                if (lastRun != null &&
+                    lastRun.contentHash == contentHash &&
+                    now - lastRun.completedAtMs < UnchangedContentRescanIntervalMs
+                ) {
+                    lastInferenceStartedAtMs = now
+                    DetectionBus.publishMode3Clear(
+                        packageName = packageName,
+                        details = "Visual scan skipped: screen content unchanged since the last inference.",
+                    )
+                    return@withContext
+                }
+            }
             lastInferenceStartedAtMs = now
 
             val accessibilityService = accessibilityServiceProvider() ?: run {
@@ -164,7 +188,10 @@ class Mode3Processor(
                 return@withContext
             }
 
-            val captureBitmap = screenCaptureManager.captureHaramClip(accessibilityService, settings) ?: run {
+            // Visual inference needs the complete screen: the model was trained on whole
+            // scenes, and the banded OCR crop would both hide content outside the bands
+            // and present a stacked-strip layout the detector has never seen.
+            val captureBitmap = screenCaptureManager.captureFullScreen(accessibilityService) ?: run {
                 DetectionBus.publishMode3Clear(
                     packageName = trigger.scanResult.packageName,
                     details = "Screenshot capture is unavailable on this device or Android version.",
@@ -185,10 +212,14 @@ class Mode3Processor(
                     environment = inferenceEngine.environment(),
                 )
                 val onnxOutput = try {
-                    inferenceEngine.run(
-                        tensor = tensor,
-                        modelConfig = modelConfig,
-                    )
+                    // The tensor is owned here: closing it in the finally block guarantees
+                    // release even when session creation fails before run() can consume it.
+                    tensor.use { inputTensor ->
+                        inferenceEngine.run(
+                            tensor = inputTensor,
+                            modelConfig = modelConfig,
+                        )
+                    }
                 } finally {
                     if (preparedBitmap !== captureBitmap) {
                         recycleBitmap(preparedBitmap)
@@ -200,6 +231,14 @@ class Mode3Processor(
                     configuredRateLimitMs = configuredRateLimitMs,
                     inferenceTimeMs = onnxOutput.inferenceTimeMs,
                 )
+                if (contentHash != 0) {
+                    synchronized(lastInferenceByPackage) {
+                        lastInferenceByPackage[packageName] = LastInferenceRecord(
+                            contentHash = contentHash,
+                            completedAtMs = SystemClock.elapsedRealtime(),
+                        )
+                    }
+                }
 
                 val summaryDetails =
                     "Model ${modelConfig.visualModel.displayName} completed in ${onnxOutput.inferenceTimeMs}ms."
@@ -282,5 +321,13 @@ class Mode3Processor(
         const val SlowInferenceThresholdMs = 1_500L
         const val ThermalGuardRateLimitMs = 2_000L
         const val SlowInferenceStrikeCount = 3
+
+        /** Window during which a same-fingerprint screen is skipped as unchanged. */
+        const val UnchangedContentRescanIntervalMs = 5_000L
     }
+
+    private data class LastInferenceRecord(
+        val contentHash: Int,
+        val completedAtMs: Long,
+    )
 }

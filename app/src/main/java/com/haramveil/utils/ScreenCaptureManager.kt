@@ -30,7 +30,10 @@ import android.os.Build
 import android.view.Display
 import androidx.core.content.ContextCompat
 import com.haramveil.data.models.ProtectionSettings
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
@@ -41,22 +44,87 @@ class ScreenCaptureManager(
     private val dispatcherProvider: DispatcherProvider = DispatcherProvider(),
 ) {
 
+    /**
+     * Full-screen software capture, meant for Mode 3 visual inference. The AI model was
+     * trained on complete scenes: cropping bands out of the screen and stacking them into
+     * a synthetic strip distorts the layout the detector expects and hides everything
+     * outside the bands.
+     */
+    suspend fun captureFullScreen(
+        accessibilityService: AccessibilityService,
+    ): Bitmap? = captureInternal(accessibilityService) { hardwareBuffer, colorSpace ->
+        wrapAsSoftwareBitmap(hardwareBuffer, colorSpace)
+    }
+
+    /**
+     * Banded capture (top + middle bands stacked), meant for Mode 2 OCR where the
+     * address bar and main text column live. Text in the lower third is intentionally
+     * out of scope to keep the strip small.
+     */
     suspend fun captureHaramClip(
         accessibilityService: AccessibilityService,
         settings: ProtectionSettings,
-    ): Bitmap? = withContext(dispatcherProvider.default) {
+    ): Bitmap? = captureInternal(accessibilityService) { hardwareBuffer, colorSpace ->
+        val sourceBitmap = wrapAsSoftwareBitmap(hardwareBuffer, colorSpace) ?: return@captureInternal null
+        try {
+            combineCaptureZones(
+                sourceBitmap = sourceBitmap,
+                topCapturePercent = settings.topCapturePercent,
+                middleCapturePercent = settings.middleCapturePercent,
+            )
+        } finally {
+            runCatching { sourceBitmap.recycle() }
+        }
+    }
+
+    /**
+     * Screenshot capture serialized process-wide: `AccessibilityService.takeScreenshot`
+     * allows only one in-flight request per display, and Mode 2 and Mode 3 each keep
+     * their own ScreenCaptureManager, so contention must be resolved across instances.
+     */
+    private suspend fun <T> captureInternal(
+        accessibilityService: AccessibilityService,
+        consume: (HardwareBuffer, ColorSpace?) -> T?,
+    ): T? = withContext(dispatcherProvider.default) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return@withContext null
         }
 
-        val screenshotResult = withTimeoutOrNull(ScreenshotTimeoutMs) {
-            awaitScreenshot(accessibilityService)
-        } ?: return@withContext null
-        buildHaramClipBitmap(
-            screenshotResult = screenshotResult,
-            topCapturePercent = settings.topCapturePercent,
-            middleCapturePercent = settings.middleCapturePercent,
-        )
+            CaptureMutex.withLock {
+                var lastAttemptFailed = false
+                repeat(CaptureAttempts) { attempt ->
+                    if (attempt > 0) {
+                        // takeScreenshot enforces a cooldown after a failed request
+                        // (ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT); retry immediately
+                        // would just fail again.
+                        delay(CaptureRetryDelayMs)
+                    }
+                    val screenshotResult = withTimeoutOrNull(ScreenshotTimeoutMs) {
+                        awaitScreenshot(accessibilityService)
+                    }
+                    if (screenshotResult == null) {
+                        lastAttemptFailed = true
+                        return@repeat
+                    }
+                val hardwareBuffer: HardwareBuffer = screenshotResult.hardwareBuffer
+                try {
+                    val consumed = consume(hardwareBuffer, screenshotResult.colorSpace)
+                    if (consumed != null) {
+                        return@withLock consumed
+                    }
+                    lastAttemptFailed = true
+                } finally {
+                    runCatching { hardwareBuffer.close() }
+                }
+                // Null from consume() means the buffer was unusable; retry.
+            }
+            if (lastAttemptFailed) {
+                DebugLog.w(accessibilityService, "HaramVeilCapture") {
+                    "Screenshot capture unavailable after $CaptureAttempts attempts."
+                }
+            }
+            null
+        }
     }
 
     fun prepareForVisualModel(
@@ -81,6 +149,29 @@ class ScreenCaptureManager(
             if (convertedBitmap !== scaledBitmap && !scaledBitmap.isRecycled) {
                 scaledBitmap.recycle()
             }
+        }
+    }
+
+    /**
+     * Wraps the screenshot HardwareBuffer and immediately deep-copies it into a software
+     * ARGB_8888 bitmap. The wrapped bitmap is HARDWARE-backed: drawing it onto a software
+     * canvas throws ("Software rendering doesn't support hardware bitmaps"), so every
+     * consumer — canvas cropping, getPixels, createScaledBitmap — needs the copy first.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
+    private fun wrapAsSoftwareBitmap(
+        hardwareBuffer: HardwareBuffer,
+        colorSpace: ColorSpace?,
+    ): Bitmap? {
+        val wrappedBitmap = Bitmap.wrapHardwareBuffer(
+            hardwareBuffer,
+            colorSpace ?: ColorSpace.get(ColorSpace.Named.SRGB),
+        ) ?: return null
+
+        return try {
+            wrappedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } finally {
+            runCatching { wrappedBitmap.recycle() }
         }
     }
 
@@ -112,33 +203,6 @@ class ScreenCaptureManager(
                 },
             )
         }
-
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
-    private fun buildHaramClipBitmap(
-        screenshotResult: AccessibilityService.ScreenshotResult,
-        topCapturePercent: Int,
-        middleCapturePercent: Int,
-    ): Bitmap? {
-        val hardwareBuffer: HardwareBuffer = screenshotResult.hardwareBuffer ?: return null
-        return try {
-            val sourceBitmap = Bitmap.wrapHardwareBuffer(
-                hardwareBuffer,
-                screenshotResult.colorSpace ?: ColorSpace.get(ColorSpace.Named.SRGB),
-            ) ?: return null
-
-            try {
-                combineCaptureZones(
-                    sourceBitmap = sourceBitmap,
-                    topCapturePercent = topCapturePercent,
-                    middleCapturePercent = middleCapturePercent,
-                )
-            } finally {
-                runCatching { sourceBitmap.recycle() }
-            }
-        } finally {
-            hardwareBuffer.close()
-        }
-    }
 
     private fun combineCaptureZones(
         sourceBitmap: Bitmap,
@@ -183,5 +247,11 @@ class ScreenCaptureManager(
 
     private companion object {
         const val ScreenshotTimeoutMs = 5_000L
+        const val CaptureAttempts = 2
+        const val CaptureRetryDelayMs = 150L
+
+        // Process-wide: AccessibilityService.takeScreenshot enforces one in-flight request
+        // per display, and a failed request usually needs a cooldown before it can succeed.
+        val CaptureMutex = Mutex()
     }
 }

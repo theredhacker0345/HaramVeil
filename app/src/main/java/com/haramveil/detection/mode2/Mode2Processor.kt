@@ -113,7 +113,7 @@ class Mode2Processor(
                 return@withContext
             }
 
-            val nowMs = System.currentTimeMillis()
+            val nowMs = android.os.SystemClock.elapsedRealtime()
             if (nowMs - lastOcrStartedAtMs < MinimumOcrIntervalMs) {
                 DetectionBus.publishMode2Clear(
                     packageName = trigger.scanResult.packageName,

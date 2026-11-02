@@ -52,16 +52,33 @@ class UITreeScanner {
         isHighRisk: Boolean,
     ): ScanResult {
         if (rootNode == null) {
-            return ScanResult(
-                triggered = false,
-                matchedKeyword = null,
-                matchSource = null,
-                packageName = packageName,
-                riskLevel = RiskLevel.LOW,
-            )
+            return cleanScanResult(packageName)
         }
+        return scan(
+            extractedSignals = collectVisibleSignals(rootNode, isBrowser || isHighRisk),
+            packageName = packageName,
+            keywordBlocklist = keywordBlocklist,
+            domainBlocklist = domainBlocklist,
+            isMonitoredApp = isMonitoredApp,
+            isBrowser = isBrowser,
+            isHighRisk = isHighRisk,
+        )
+    }
 
-        val extractedSignals = collectVisibleSignals(rootNode, isBrowser || isHighRisk)
+    /**
+     * Scans from already-collected signals: the accessibility pipeline collects the UI
+     * signals once (for both the change fingerprint and the text scan), so a second
+     * binder-backed tree traversal per event would double the cost of every scan.
+     */
+    fun scan(
+        extractedSignals: ExtractedUiSignals,
+        packageName: String,
+        keywordBlocklist: List<String>,
+        domainBlocklist: List<String>,
+        isMonitoredApp: Boolean,
+        isBrowser: Boolean,
+        isHighRisk: Boolean,
+    ): ScanResult {
         // Domain/URL detection works in browsers AND high-risk apps (Instagram, TikTok, etc.)
         val matchedDomain = if (isBrowser || isHighRisk) {
             findMatchedDomain(
@@ -95,11 +112,12 @@ class UITreeScanner {
         )
     }
 
-    fun computeNodeHash(rootNode: AccessibilityNodeInfo?, isBrowser: Boolean, isHighRisk: Boolean): Int {
-        if (rootNode == null) {
-            return 0
-        }
-
+    /** Single traversal shared by the fingerprint hash and the text scan. */
+    fun collectSignals(
+        rootNode: AccessibilityNodeInfo,
+        isBrowser: Boolean,
+        isHighRisk: Boolean,
+    ): ExtractedUiSignals {
         val packageName = rootNode.packageName?.toString().orEmpty()
         val localIsBrowser = if (packageName.isNotEmpty()) isBrowserPackage(packageName) else isBrowser
         val localIsHighRisk = if (packageName.isNotEmpty()) {
@@ -108,20 +126,31 @@ class UITreeScanner {
             // If both are unavailable, treat as high-risk per security requirement
             isHighRisk || !isBrowser
         }
+        return collectVisibleSignals(rootNode, localIsBrowser || localIsHighRisk)
+    }
 
-        val effectiveIsBrowser = isBrowser || localIsBrowser
-        val effectiveIsHighRisk = isHighRisk || localIsHighRisk
+    fun computeNodeHash(
+        packageName: String,
+        extractedSignals: ExtractedUiSignals,
+    ): Int = buildString {
+        append(packageName)
+        append("|")
+        append(extractedSignals.visibleTexts.joinToString(separator = "|"))
+        append("|")
+        append(extractedSignals.resourceIds.joinToString(separator = "|"))
+        append("|")
+        append(extractedSignals.contentDescriptions.joinToString(separator = "|"))
+    }.hashCode()
 
-        val extractedSignals = collectVisibleSignals(rootNode, effectiveIsBrowser || effectiveIsHighRisk)
-        return buildString {
-            append(packageName)
-            append("|")
-            append(extractedSignals.visibleTexts.joinToString(separator = "|"))
-            append("|")
-            append(extractedSignals.resourceIds.joinToString(separator = "|"))
-            append("|")
-            append(extractedSignals.contentDescriptions.joinToString(separator = "|"))
-        }.hashCode()
+    fun computeNodeHash(rootNode: AccessibilityNodeInfo?, isBrowser: Boolean, isHighRisk: Boolean): Int {
+        if (rootNode == null) {
+            return 0
+        }
+        val packageName = rootNode.packageName?.toString().orEmpty()
+        return computeNodeHash(
+            packageName = packageName,
+            extractedSignals = collectSignals(rootNode, isBrowser, isHighRisk),
+        )
     }
 
     fun isHighRiskPackage(packageName: String): Boolean {
@@ -222,6 +251,14 @@ class UITreeScanner {
             contentDescriptions = contentDescriptions.toList(),
         )
     }
+
+    private fun cleanScanResult(packageName: String): ScanResult = ScanResult(
+        triggered = false,
+        matchedKeyword = null,
+        matchSource = null,
+        packageName = packageName,
+        riskLevel = RiskLevel.LOW,
+    )
 
     private fun findMatchedKeyword(
         extractedSignals: ExtractedUiSignals,
@@ -432,7 +469,7 @@ class UITreeScanner {
     }
 }
 
-private data class ExtractedUiSignals(
+data class ExtractedUiSignals(
     val visibleTexts: List<String>,
     val resourceIds: List<String>,
     val contentDescriptions: List<String>,

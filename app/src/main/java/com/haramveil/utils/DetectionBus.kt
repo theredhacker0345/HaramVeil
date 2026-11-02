@@ -38,6 +38,12 @@ data class Mode1WakeRequest(
     val scanResult: ScanResult,
     val wakeMode2: Boolean,
     val wakeMode3: Boolean,
+    /**
+     * Fingerprint of the accessibility tree the request was built from. Visual scans
+     * use it to skip re-running inference on content that has provably not changed.
+     * 0 means "unknown" (synthetic triggers) and never enables the skip.
+     */
+    val nodeHash: Int = 0,
     val issuedAtEpochMs: Long = System.currentTimeMillis(),
 )
 

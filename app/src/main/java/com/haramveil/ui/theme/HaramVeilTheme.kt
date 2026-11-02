@@ -18,8 +18,10 @@
 
 package com.haramveil.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
@@ -44,12 +46,38 @@ private val HaramVeilDarkColorScheme = darkColorScheme(
     error = Color(0xFFF4A261),
 )
 
+// Light scheme keeps the brand's deep-green identity but flips surfaces so users on a
+// light system theme no longer get a dark app in broad daylight.
+private val HaramVeilLightColorScheme = lightColorScheme(
+    primary = Color(0xFF1B4332),
+    onPrimary = Color(0xFFF6FFF8),
+    primaryContainer = Color(0xFFBFE8CF),
+    onPrimaryContainer = Color(0xFF0A291B),
+    secondary = Color(0xFF2E6B4F),
+    onSecondary = Color(0xFFF6FFF8),
+    secondaryContainer = Color(0xFFD2F1DF),
+    onSecondaryContainer = Color(0xFF0A291B),
+    tertiary = Color(0xFF1D7C82),
+    onTertiary = Color(0xFFF3FEFF),
+    tertiaryContainer = Color(0xFFC4F0F3),
+    onTertiaryContainer = Color(0xFF062A2D),
+    background = Color(0xFFF7FAF6),
+    onBackground = Color(0xFF18211C),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF18211C),
+    surfaceVariant = Color(0xFFE3EBE4),
+    onSurfaceVariant = Color(0xFF435049),
+    outline = Color(0xFF72807A),
+    error = Color(0xFFB3550F),
+)
+
 @Composable
 fun HaramVeilTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = HaramVeilDarkColorScheme,
+        colorScheme = if (darkTheme) HaramVeilDarkColorScheme else HaramVeilLightColorScheme,
         typography = MaterialTheme.typography,
         content = content,
     )

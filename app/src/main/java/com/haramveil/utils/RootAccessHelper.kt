@@ -32,9 +32,48 @@ object RootAccessHelper {
         "/system_ext/bin/su",
     )
 
-    fun isRootAvailable(): Boolean =
-        suCandidates.any { path -> File(path).exists() } &&
+    private const val AvailabilityCacheTtlMs = 60_000L
+
+    @Volatile
+    private var cachedAvailability: Boolean? = null
+
+    @Volatile
+    private var cachedAvailabilityAtMs = 0L
+    private val availabilityLock = Any()
+
+    /**
+     * Root detection spawns a `su -c id` subprocess with a 1.5s timeout. The UI polls this
+     * every second while open, and the foreground service calls it on every start, so the
+     * verdict is cached for a minute instead of paying a subprocess spawn per check.
+     */
+    fun isRootAvailable(): Boolean {
+        val cached = synchronized(availabilityLock) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (cachedAvailability != null && now - cachedAvailabilityAtMs < AvailabilityCacheTtlMs) {
+                cachedAvailability
+            } else {
+                null
+            }
+        }
+        if (cached != null) {
+            return cached
+        }
+
+        val available = suCandidates.any { path -> File(path).exists() } &&
             runSuCommand("id", timeoutMs = 1_500L)
+        synchronized(availabilityLock) {
+            cachedAvailability = available
+            cachedAvailabilityAtMs = android.os.SystemClock.elapsedRealtime()
+        }
+        return available
+    }
+
+    fun invalidateAvailabilityCache() {
+        synchronized(availabilityLock) {
+            cachedAvailability = null
+            cachedAvailabilityAtMs = 0L
+        }
+    }
 
     fun tryLowerNiceValue(): Boolean =
         runSuCommand(
@@ -73,7 +112,16 @@ object RootAccessHelper {
                 .redirectErrorStream(true)
                 .start()
             val completed = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
-            completed && process.exitValue() == 0
+            val succeeded = completed && process.exitValue() == 0
+            if (succeeded) {
+                // A successful su call is proof of availability; refresh the cache instead
+                // of re-probing on the next isRootAvailable() check.
+                synchronized(availabilityLock) {
+                    cachedAvailability = true
+                    cachedAvailabilityAtMs = android.os.SystemClock.elapsedRealtime()
+                }
+            }
+            succeeded
         }.getOrDefault(false)
     }
 }

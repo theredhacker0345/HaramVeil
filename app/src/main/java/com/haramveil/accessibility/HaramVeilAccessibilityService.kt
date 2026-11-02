@@ -51,7 +51,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class HaramVeilAccessibilityService : AccessibilityService() {
@@ -71,6 +70,8 @@ class HaramVeilAccessibilityService : AccessibilityService() {
     private var processedMode1EventsInWindow = 0
     private var processedMetricsWindowStartedAtMs = SystemClock.elapsedRealtime()
     private var lastScanHeartbeatMs = 0L
+    private var isMode2Running = false
+    private var isMode3Running = false
 
     override fun onCreate() {
         super.onCreate()
@@ -240,7 +241,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
 
     private fun startCollectors() {
         val settingsJob = serviceScope.launch(dispatcherProvider.io) {
-            protectionPreferencesRepository.settingsFlow.collectLatest { settings ->
+            protectionPreferencesRepository.settingsFlow.collect { settings ->
                 protectionSettingsState.value = settings
                 val effectiveFrameSkipMs = if (settings.strictModeEnabled) {
                     HaramVeilPreferenceKeys.StrictFrameSkipIntervalMs
@@ -248,15 +249,25 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                     settings.frameSkipIntervalMs
                 }
                 throttleManager.updateDebounceMs(effectiveFrameSkipMs)
-                if (settings.protectionEnabled && settings.mode2Enabled) {
-                    mode2Processor.start()
-                } else {
-                    mode2Processor.stop()
-                }
-                if (settings.protectionEnabled && settings.mode3Enabled) {
-                    mode3Processor.start()
-                } else {
-                    mode3Processor.stop()
+
+                // Processor start/stop is comparatively expensive (Mode 3 re-warms the
+                // ONNX session), so only the flags that decide it gate it — otherwise any
+                // unrelated preference write restarts both processors.
+                val shouldRunMode2 = settings.protectionEnabled && settings.mode2Enabled
+                val shouldRunMode3 = settings.protectionEnabled && settings.mode3Enabled
+                if (shouldRunMode2 != isMode2Running || shouldRunMode3 != isMode3Running) {
+                    isMode2Running = shouldRunMode2
+                    isMode3Running = shouldRunMode3
+                    if (shouldRunMode2) {
+                        mode2Processor.start()
+                    } else {
+                        mode2Processor.stop()
+                    }
+                    if (shouldRunMode3) {
+                        mode3Processor.start()
+                    } else {
+                        mode3Processor.stop()
+                    }
                 }
             }
         }
@@ -312,21 +323,34 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                             ),
                             wakeMode2 = wakeMode2,
                             wakeMode3 = wakeMode3,
+                            nodeHash = trigger.nodeHash,
                         ),
                     )
                 }
                 return
             }
 
-            val scanResult = uiTreeScanner.scan(
-                rootNode = trigger.rootNode,
-                packageName = trigger.packageName,
-                keywordBlocklist = currentSettings.keywordBlocklist,
-                domainBlocklist = currentSettings.domainBlocklist,
-                isMonitoredApp = isMonitoredApp,
-                isBrowser = isBrowserApp,
-                isHighRisk = isHighRiskApp,
-            )
+            val scanResult = if (trigger.extractedSignals != null) {
+                uiTreeScanner.scan(
+                    extractedSignals = trigger.extractedSignals,
+                    packageName = trigger.packageName,
+                    keywordBlocklist = currentSettings.keywordBlocklist,
+                    domainBlocklist = currentSettings.domainBlocklist,
+                    isMonitoredApp = isMonitoredApp,
+                    isBrowser = isBrowserApp,
+                    isHighRisk = isHighRiskApp,
+                )
+            } else {
+                uiTreeScanner.scan(
+                    rootNode = trigger.rootNode,
+                    packageName = trigger.packageName,
+                    keywordBlocklist = currentSettings.keywordBlocklist,
+                    domainBlocklist = currentSettings.domainBlocklist,
+                    isMonitoredApp = isMonitoredApp,
+                    isBrowser = isBrowserApp,
+                    isHighRisk = isHighRiskApp,
+                )
+            }
 
             // When Mode 1's text/keyword scan did not match, we still need to wake the
             // visual (Mode 3) pipeline for eligible apps so purely graphical adult content
@@ -342,6 +366,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                             scanResult = scanResult,
                             wakeMode2 = wakeMode2,
                             wakeMode3 = true,
+                            nodeHash = trigger.nodeHash,
                         ),
                     )
                 }
@@ -365,6 +390,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                     scanResult = scanResult,
                     wakeMode2 = wakeMode2,
                     wakeMode3 = wakeMode3,
+                    nodeHash = trigger.nodeHash,
                 ),
             )
 
@@ -397,7 +423,11 @@ class HaramVeilAccessibilityService : AccessibilityService() {
         try {
             val isBrowser = uiTreeScanner.isBrowserPackage(packageName)
             val isHighRisk = uiTreeScanner.isHighRiskPackage(packageName)
-            val nodeHash = uiTreeScanner.computeNodeHash(rootSnapshot, isBrowser, isHighRisk)
+            // One shared traversal produces both the change fingerprint and the signals
+            // the Mode 1 scan consumes; walking the tree twice per event doubled the
+            // biggest recurring battery cost of the service.
+            val extractedSignals = uiTreeScanner.collectSignals(rootSnapshot, isBrowser, isHighRisk)
+            val nodeHash = uiTreeScanner.computeNodeHash(packageName, extractedSignals)
             return ThrottledScanTrigger(
                 isBrowser = isBrowser,
                 isHighRisk = isHighRisk,
@@ -405,6 +435,7 @@ class HaramVeilAccessibilityService : AccessibilityService() {
                 eventType = eventType,
                 nodeHash = nodeHash,
                 rootNode = rootSnapshot,
+                extractedSignals = extractedSignals,
             )
         } catch (error: Throwable) {
             runCatching { rootSnapshot.recycle() }

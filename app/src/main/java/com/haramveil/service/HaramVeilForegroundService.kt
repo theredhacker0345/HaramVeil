@@ -26,7 +26,6 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import android.os.UserManager
 import androidx.work.WorkManager
 import com.haramveil.accessibility.isHaramVeilAccessibilityServiceEnabled
@@ -43,7 +42,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 class HaramVeilForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -52,14 +50,17 @@ class HaramVeilForegroundService : Service() {
     private var unlockedRuntimeStarted = false
     private var userUnlockedReceiver: BroadcastReceiver? = null
     private var intentionalStopRequested = false
-    private var samsungWakeLock: PowerManager.WakeLock? = null
+
+    @Volatile
+    private var isScreenOn = true
+    private var screenStateReceiver: BroadcastReceiver? = null
 
     override fun onCreate() {
         super.onCreate()
         bootstrapStore = ProtectionBootstrapStore(applicationContext)
         ProtectionNotificationHelper.ensureChannels(applicationContext)
         registerUserUnlockedReceiver()
-        acquireSamsungWakeLockIfNeeded()
+        registerScreenStateReceiver()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -123,7 +124,7 @@ class HaramVeilForegroundService : Service() {
 
     override fun onDestroy() {
         unregisterUserUnlockedReceiver()
-        releaseSamsungWakeLock()
+        unregisterScreenStateReceiver()
         stopRuntime(cancelRecovery = intentionalStopRequested)
         serviceScope.cancel()
         super.onDestroy()
@@ -135,8 +136,16 @@ class HaramVeilForegroundService : Service() {
         }
         heartbeatJob = serviceScope.launch {
             while (isActive) {
-                bootstrapStore.updateServiceHeartbeat()
-                delay(HeartbeatIntervalMs)
+                // The heartbeat exists so a killed service can be detected and restarted;
+                // while the screen is off nothing is scanning, so the marker only needs to
+                // stay fresh on the slow cycle instead of waking the disk every 30s.
+                if (isScreenOn) {
+                    bootstrapStore.updateServiceHeartbeat()
+                    delay(HeartbeatIntervalMs)
+                } else {
+                    delay(ScreenOffHeartbeatIntervalMs)
+                    bootstrapStore.updateServiceHeartbeat()
+                }
             }
         }
     }
@@ -250,27 +259,42 @@ class HaramVeilForegroundService : Service() {
         const val ActionStart = "com.haramveil.service.action.START"
         const val ActionStop = "com.haramveil.service.action.STOP"
         const val HeartbeatIntervalMs = 30_000L
+        const val ScreenOffHeartbeatIntervalMs = 15 * 60 * 1_000L
         private const val LogTag = "HaramVeilRuntime"
-        private const val SamsungWakeLockTag = "HaramVeil::SamsungServiceKeepAlive"
-        private const val SamsungWakeLockTimeoutMs = 10 * 60 * 1_000L
     }
 
-    private fun acquireSamsungWakeLockIfNeeded() {
-        val isSamsung = Build.MANUFACTURER.lowercase(Locale.US).contains("samsung")
-        if (!isSamsung) return
-        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-        val wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, SamsungWakeLockTag)
-        if (!wakeLock.isHeld) {
-            wakeLock.acquire(SamsungWakeLockTimeoutMs)
+    /**
+     * Screen-state tracking for the heartbeat. A wake lock was previously held for this on
+     * Samsung devices, but it only lasted 10 minutes (never re-acquired) and keeping the
+     * CPU awake defeats Doze for zero protection benefit: no accessibility events arrive
+     * while the screen is off anyway.
+     */
+    private fun registerScreenStateReceiver() {
+        if (screenStateReceiver != null) {
+            return
         }
-        samsungWakeLock = wakeLock
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_ON -> isScreenOn = true
+                    Intent.ACTION_SCREEN_OFF -> isScreenOn = false
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        registerReceiver(receiver, filter)
+        screenStateReceiver = receiver
     }
 
-    private fun releaseSamsungWakeLock() {
-        val wakeLock = samsungWakeLock ?: return
-        if (wakeLock.isHeld) {
-            wakeLock.release()
+    private fun unregisterScreenStateReceiver() {
+        val receiver = screenStateReceiver ?: return
+        runCatching {
+            unregisterReceiver(receiver)
         }
-        samsungWakeLock = null
+        screenStateReceiver = null
     }
 }
