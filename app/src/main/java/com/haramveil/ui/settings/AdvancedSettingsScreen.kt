@@ -360,7 +360,7 @@ fun AdvancedSettingsScreen(
                         tint = MaterialTheme.colorScheme.secondary,
                     )
                     Text(
-                        text = "Fine-tune the top and middle capture bands used by both OCR and ONNX capture paths.",
+                        text = "Fine-tune the top and middle capture bands used by the OCR scan. Visual AI (Mode 3) always analyses the full screen.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -94,19 +94,24 @@ woken it (it never scans on its own), which conserves battery.
 **Files:** `detection/mode3/` (`NudeNetInferenceEngine`, `NudeNetPreprocessor`,
 `ModelSelector`, `Mode3Processor`)
 
-Runs a **NudeNet** deep-learning model **locally via ONNX Runtime**. The screen
-clip is preprocessed (`NudeNetPreprocessor`) into a normalized tensor and fed to
-the model.
+Runs a **NudeNet** deep-learning model **locally via ONNX Runtime**. A
+full-screen capture is preprocessed (`NudeNetPreprocessor`) into a normalized
+tensor and fed to the model. The detector was trained on complete scenes, so
+Mode 3 deliberately analyses the whole screen — the banded "HaramClip" crop is
+only used by Mode 2's OCR path.
 
 ### Model selection
 
 `VisualModelOption` exposes at least:
-- **320n** ("Mobile", ~6 MB) — fast, lighter accuracy.
-- **640n** ("Enhanced", ~15 MB) — better accuracy where supported.
+- **320n** ("Bundled", ~12 MB, YOLOv8-nano) — fast, shipped as an asset.
+- **640m** ("Enhanced", ~100 MB, YOLOv8-medium) — higher accuracy, imported by
+  the user via the file picker (`640m.onnx` from the NudeNet v3.4 release).
 
 Models can be **bundled assets** or **user-imported files**
 (`ModelSource.BUNDLED_ASSET` vs `IMPORTED_FILE`). Imported models live in
-`filesDir/models/` and are loaded directly.
+`filesDir/models/` and are loaded directly. Both bundled and imported YOLOv8
+exports emit a `[1, 4 + 18, N]` probability tensor that the shared decoder
+consumes unchanged.
 
 ### Output decoding
 
@@ -124,7 +129,10 @@ exceeds `DefaultUnsafeThreshold = 0.35`.
 
 To protect device health, `Mode3Processor` measures inference time. If inference
 exceeds `1.5 s` three times in a row, it raises the visual-scan interval to
-`2 s` ("thermal guard") and persists the new pacing.
+`2 s` for the current session ("thermal guard"); the stored preferences are
+never modified. Inference on screens whose accessibility fingerprint has not
+changed is skipped for up to 5 s, which avoids re-running the model on static
+content.
 
 ---
 
@@ -137,9 +145,11 @@ exceeds `1.5 s` three times in a row, it raises the visual-scan interval to
   `Mode2Triggered`/`Mode2Clear`, `Mode3Triggered`/`Mode3Clear`, and
   `VeilRequested` events. Mode 2 and Mode 3 processors subscribe to
   `Mode1Triggered` and run concurrently.
-- **`ScreenCaptureManager.captureHaramClip()`** captures a configurable vertical
-  region (`topCapturePercent`, `middleCapturePercent`) rather than the full
-  screen, reducing memory and inference cost.
+- **`ScreenCaptureManager`** provides two capture paths: `captureHaramClip()`
+  for Mode 2 (configurable vertical bands — `topCapturePercent`,
+  `middleCapturePercent`) and `captureFullScreen()` for Mode 3. Captures are
+  serialized process-wide because `takeScreenshot` allows one in-flight request
+  per display.
 
 ## Tuning knobs (`ProtectionSettings`)
 
