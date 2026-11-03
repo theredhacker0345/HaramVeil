@@ -1,59 +1,109 @@
-# HaramVeil CI: static analysis, unit tests, and APK builds for every push to main.
-# The image provides JDK 21 (the Gradle daemon toolchain); the Android SDK
-# cmdline-tools are fetched and cached so runner images can stay small.
+# HaramVeil CI — kept deliberately lean to conserve GitLab pipeline minutes.
+#
+# On push to main:
+#   - one `verify` job (detekt + unit tests for both flavors in a single Gradle
+#     invocation), and it is SKIPPED entirely when the commit only touches
+#     docs/metadata (no pipeline minutes spent).
+#   - NO APK builds on push. APK assembly (two R8 releases across 4 ABIs each)
+#     is expensive, so it only runs as a MANUAL job: press the play button on
+#     the pipeline in the GitLab web UI, or start the pipeline manually
+#     (Run pipeline) and trigger "build-apks".
 image: eclipse-temurin:21-jdk
+
+workflow:
+  rules:
+    # Main pushes: verify (skipped for docs-only commits) + manual APK build.
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    # Manual "Run pipeline" (web) / schedules: full control from the UI.
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    # Merge requests: verify only, no APK builds.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+default:
+  interruptible: true
 
 variables:
   ANDROID_CMDLINE_TOOLS_VERSION: "11076708"
   ANDROID_HOME: "$CI_PROJECT_DIR/.android-sdk"
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  # Avoids Gradle building heavy watching infrastructure in ephemeral CI containers.
+  GRADLE_OPTS: "-Dorg.gradle.vfs.watch=false"
 
 cache:
-  key: android-sdk-and-gradle
+  key: haramveil-sdk-gradle-v1
   paths:
     - .android-sdk/
-    - .gradle/
+    - .gradle/caches/
+    - .gradle/wrapper/
 
+# Runs before every job. eclipse-temurin images are Ubuntu-based; curl/unzip may
+# be missing. The Android SDK is downloaded once and kept in the pipeline cache.
 .setup-sdk: &setup-sdk
+  - if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq curl unzip; fi
   - if [ ! -d "$ANDROID_HOME/cmdline-tools" ]; then
       curl -sL -o /tmp/cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS_VERSION}_latest.zip";
       unzip -q /tmp/cmdtools.zip -d "$ANDROID_HOME";
       yes | "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true;
       "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" "build-tools;36.0.0" >/dev/null;
     fi
+  # local.properties carries a developer-machine sdk.dir and must never leak into CI.
   - rm -f local.properties
+
+# Files that can affect build/test outcomes. A commit touching anything else
+# (docs, metadata, licenses…) skips the verify job and its pipeline minutes.
+.code-paths: &code-paths
+  - "**/*.kt"
+  - "**/*.kts"
+  - "**/*.xml"
+  - "**/*.pro"
+  - "**/*.toml"
+  - "gradle/**"
+  - "gradlew"
+  - "gradlew.bat"
+  - "app/src/main/assets/**"
+  - "app/src/fossOnnx/assets/**"
+  - "config/detekt/**"
+  - ".gitlab-ci.yml"
+
+verify:
+  stage: verify
+  before_script: *setup-sdk
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      changes: *code-paths
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *code-paths
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "schedule"'
+  script:
+    # One Gradle invocation for everything: a single configuration phase instead
+    # of one per job — detekt + both flavors' unit tests together.
+    - ./gradlew --no-daemon :app:detekt :app:testFossOnnxDebugUnitTest :app:testMlkitDebugUnitTest
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - app/build/test-results/testFossOnnxDebugUnitTest/*.xml
+        - app/build/test-results/testMlkitDebugUnitTest/*.xml
+    expire_in: 1 week
+
+# MANUAL ONLY — never runs on push. Trigger from the pipeline view (play button)
+# or via Run pipeline. Produces R8-minified per-ABI release APKs for both flavors.
+build-apks:
+  stage: build
+  before_script: *setup-sdk
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: manual
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "schedule"'
+      when: manual
+  script:
+    - ./gradlew --no-daemon :app:assembleFossOnnxRelease :app:assembleMlkitRelease
+  artifacts:
+    paths:
+      - app/build/outputs/apk/*/release/*.apk
+    expire_in: 7 days
 
 stages:
   - verify
   - build
-
-detekt:
-  stage: verify
-  script:
-    - *setup-sdk
-    - ./gradlew :app:detekt --no-daemon
-
-unit-tests:
-  stage: verify
-  script:
-    - *setup-sdk
-    - ./gradlew :app:testFossOnnxDebugUnitTest :app:testMlkitDebugUnitTest --no-daemon
-    - mkdir -p junit-reports
-    - cp app/build/test-results/testFossOnnxDebugUnitTest/*.xml junit-reports/ 2>/dev/null || true
-    - cp app/build/test-results/testMlkitDebugUnitTest/*.xml junit-reports/ 2>/dev/null || true
-  artifacts:
-    when: always
-    reports:
-      junit: junit-reports/*.xml
-
-assemble:
-  stage: build
-  script:
-    - *setup-sdk
-    - ./gradlew :app:assembleFossOnnxDebug :app:assembleMlkitDebug --no-daemon
-    - ./gradlew :app:assembleFossOnnxRelease :app:assembleMlkitRelease --no-daemon
-  artifacts:
-    paths:
-      - app/build/outputs/apk/**/release/*.apk
-      - app/build/outputs/apk/**/debug/*.apk
-    expire_in: 1 week

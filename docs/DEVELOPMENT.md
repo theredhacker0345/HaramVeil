@@ -110,9 +110,13 @@ code, add a targeted keep rule and run the manual release pass from
   ./gradlew detekt
   ```
 
-CI workflows in `.github/workflows/` (`build.yml`, `app-ui-test.yml`) run the
-Gradle build, lint, and UI tests on the GitHub mirror; the GitLab repository
-runs the equivalent pipeline in [.gitlab-ci.yml](../.gitlab-ci.yml).
+CI workflows in `.github/workflows/` (`build.yml`, `app-ui-test.yml`) run on the
+GitHub mirror; the GitLab repository runs [.gitlab-ci.yml](../.gitlab-ci.yml):
+**on push to main it only runs static analysis + unit tests** (skipped entirely
+for docs-only commits), and **APK assembly is a manual job** — press the play
+button next to `build-apks` on a pipeline (or Run pipeline → trigger it) when
+you actually want release APKs. APK builds are deliberately never automatic:
+two R8 releases across 4 ABIs would burn pipeline minutes on every push.
 
 ## Module Map (detection/inference)
 
