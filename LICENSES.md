@@ -27,13 +27,18 @@ All dependencies are Free/Libre Open Source Software (FLOSS):
 | File | Size | Source | License |
 |------|------|--------|---------|
 | `app/src/main/assets/320n.onnx` | 12 MB | [NudeNet v3.4 weights](https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights) | AGPL-3.0 (upstream repo) |
-| `app/src/main/assets/640m.onnx` | 99 MB | [NudeNet v3.4 weights](https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights) | AGPL-3.0 (upstream repo) |
+| `app/src/fossOnnx/assets/en_PP-OCRv5_rec.onnx` | 7.9 MB | [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) v3.7.0 (`onnx/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile_infer.onnx`, converted from PaddleOCR) | Apache-2.0 |
+| `app/src/fossOnnx/assets/ppocrv5_en_dict.txt` | 1.4 KB | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) `ppocr/utils/dict/ppocrv5_en_dict.txt` | Apache-2.0 |
+
+The NudeNet **640m** model (~100 MB) is **not bundled**; users who want the
+higher-accuracy detector import `640m.onnx` themselves via the file picker
+(same AGPL-3.0 upstream release).
 
 These are pre-trained neural network weight files (data, not executable code).
 The upstream NudeNet repository is licensed under AGPL-3.0. The weight files
 are distributed as part of the NudeNet release. Since the HaramVeil app is
 GPL-3.0 and AGPL-3.0 is compatible (AGPL is a stronger copyleft), these
-weights can be redistributed.
+weights can be redistributed — see the redistribution note in [NOTICE](NOTICE).
 
 ### Quranic Text
 
@@ -78,6 +83,7 @@ are licensed under the same GPL-3.0 as the source code.
 4. **No API keys** bundled in the source or binary.
 
 5. **No runtime binary downloads** in release builds (INTERNET permission is
-   stripped, so `ModelDownloadManager` is dead code in the FOSS release).
+   stripped, so `ModelDownloadManager` is a dead code path in the FOSS release;
+   both the NSFW detector and the OCR model ship bundled in the APK).
 
 6. **All assets** have documented FLOSS-compatible licenses.

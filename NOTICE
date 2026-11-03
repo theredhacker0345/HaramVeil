@@ -39,12 +39,20 @@ HaramVeil includes or links against the following notable third-party components
 
 7. NudeNet source repository
    Source: https://github.com/notAI-tech/NudeNet
-   Repository license: AGPL-3.0
+   Repository license: AGPL-3.0 (verified via the GitHub API)
    Weights used here: https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights
    Important note: the v3.4 weight release metadata does not publish a separate weight-file license text. Redistribution of the bundled weight files should be manually verified before F-Droid or other third-party distribution.
+
+8. RapidOCR / PaddleOCR PP-OCRv5 recognition model + dictionary (fossOnnx flavor)
+   Files: app/src/fossOnnx/assets/en_PP-OCRv5_rec.onnx, app/src/fossOnnx/assets/ppocrv5_en_dict.txt
+   Source: https://github.com/RapidAI/RapidOCR (v3.7.0, onnx/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile_infer.onnx)
+   Dictionary: https://github.com/PaddlePaddle/PaddleOCR (ppocr/utils/dict/ppocrv5_en_dict.txt)
+   Licenses: RapidOCR and PaddleOCR are Apache-2.0 (verified via the GitHub API); the
+   converted ONNX model and the dictionary inherit Apache-2.0.
+   Compatibility note: Apache-2.0 is GPLv3-compatible.
 
 Summary of license compatibility for this repository:
 
 - MIT, Apache-2.0, and BSD-style dependencies used here are generally compatible with GPLv3 distribution.
 - The optional ML Kit dependency is the main release-compliance concern because it is proprietary and not suitable for a pure-FOSS F-Droid binary.
-- The NudeNet repo license is visible upstream, but the bundled weight-file redistribution terms remain unclear and should be reviewed before public binary redistribution.
+- The NudeNet repository is AGPL-3.0. AGPL-3.0 sections are included in GPL-3.0, so combining is permissible, but the combined work effectively inherits AGPL-3.0 obligations for that component. Model weights are data rather than executable code, which AGPL does not clearly cover; treat this as a documented good-faith interpretation. Should the project ever embed NudeNet *source* (not just weights), prefer licensing HaramVeil as "GPL-3.0-or-later" to make the combination unambiguous.

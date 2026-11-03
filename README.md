@@ -1,64 +1,73 @@
 # <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="48" height="48" align="center" /> HaramVeil
 
-[![Android CI](https://github.com/darkmaster0345/HaramVeil/actions/workflows/build.yml/badge.svg)](https://github.com/darkmaster0345/HaramVeil/actions/workflows/build.yml)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Android Version](https://img.shields.io/badge/Android-10+-green.svg?logo=android&logoColor=white)](https://developer.android.com/about/versions/10)
+[![License: GPL v3](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Android Version](https://img.shields.io/badge/Android-10%2B-green.svg?logo=android&logoColor=white)](https://developer.android.com/about/versions/10)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![F-Droid FOSS](https://img.shields.io/badge/F--Droid-FOSS%20Ready-brightgreen.svg?logo=f-droid&logoColor=white)](https://f-droid.org/)
+[![APK Size](https://img.shields.io/badge/APK%20arm64-~52%20MB-informational)](#-installation--setup)
 
 > "Tell the believing men to lower their gaze and guard their private parts. That is purer for them." - **Quran 24:30**
 
-**HaramVeil** is a sophisticated, privacy-centric Android application engineered to help users maintain spiritual purity. It serves as an automated "digital guardian" that identifies and veils adult content in real-time across the entire device using advanced local AI and layered detection heuristics.
+**HaramVeil** is a privacy-centric Android application that helps users maintain spiritual purity. It works as an automated "digital guardian": it identifies and veils adult content in real time across the whole device using a local AI detector, on-device OCR, and keyword scanning — **all processing happens on the device, and the app has no INTERNET permission**.
 
 ---
 
-> 📚 **Full documentation** lives in the [`docs/`](docs/) folder: [Architecture](docs/ARCHITECTURE.md), [Detection Pipeline](docs/DETECTION.md), [Security & Privacy](docs/SECURITY.md), [Development](docs/DEVELOPMENT.md), [Features](docs/FEATURES.md), and [FAQ](docs/FAQ.md). A companion site is published to GitHub Pages.
+> 📚 **Full documentation** lives in the [`docs/`](docs/) folder: [Architecture](docs/ARCHITECTURE.md), [Detection Pipeline](docs/DETECTION.md), [Security & Privacy](docs/SECURITY.md), [Development](docs/DEVELOPMENT.md), [Features](docs/FEATURES.md), and [FAQ](docs/FAQ.md). Asset licensing is tracked in [LICENSES.md](LICENSES.md) and [NOTICE](NOTICE).
 
 ## 🌟 Vision & Purpose
 
-In an age where explicit content is often just a click away, **HaramVeil** aims to provide a proactive safety net. Unlike standard DNS blockers that can be easily bypassed or miss embedded content, HaramVeil analyzes what is actually being displayed on your screen, providing a last line of defense that is both intelligent and difficult to circumvent.
+In an age where explicit content is often just a click away, **HaramVeil** provides a proactive safety net. Unlike DNS blockers that can be bypassed or miss embedded content, HaramVeil analyzes what is actually displayed on screen — a last line of defense that is intelligent and difficult to circumvent.
 
 ---
 
-## ✨ Comprehensive Features
+## ✨ Features
 
 ### 🛡️ Layered Detection Architecture
-HaramVeil employs a triple-threat detection pipeline to ensure maximum coverage:
 
-#### 1. Mode 1: UI Tree Analysis (Keyword & Domain)
-*   **How it works**: Directly inspects the accessibility node tree of active applications.
-*   **Keyword Matching**: Matches against an encrypted local blocklist of keywords (e.g., adult terms, suggestive phrases).
-*   **Domain Matching**: Specialized handling for web browsers. It extracts the URL/Domain from the address bar and matches it against a blocked domain list.
-*   **Risk Levels**: Differentiates between LOW, MEDIUM, and HIGH risk scenarios to determine the appropriate veil intensity.
+#### 1. Mode 1 — UI Tree Analysis (Keyword & Domain)
+* Inspects the accessibility node tree of active apps (single shared traversal, deduplicated by content fingerprint).
+* Matches visible text against a local keyword blocklist and browser address bars against a domain blocklist.
+* Differentiates LOW / MEDIUM / HIGH risk to choose the right veil response.
 
-#### 2. Mode 2: Intelligent OCR (Optical Character Recognition)
-*   **Visual Text Extraction**: Periodically captures internal screenshots (processed entirely in memory) to find text that might be hidden from the UI tree (e.g., text inside images or videos).
-*   **Engines**:
-    *   **Google ML Kit**: High performance and precision.
-    *   **RapidOCR ONNX**: A fully open-source alternative for those who prefer no Google dependencies.
-*   **Dynamic Scanning**: Only triggers when "High Risk" apps are in the foreground, saving battery.
+#### 2. Mode 2 — Intelligent OCR (works fully offline)
+* Captures internal screenshots in memory and reads text hidden from the UI tree (text inside images, address bars, overlays).
+* **Bundled FOSS engine**: a PP-OCRv5 English recognition model + dictionary ship inside the `fossOnnx` flavor — no download, no Google dependency, no INTERNET permission needed.
+* **ML Kit engine** (optional `mlkit` flavor) for devices that prefer Google's recognizer.
 
-#### 3. Mode 3: Visual AI Inference (NudeNet)
-*   **Deep Learning**: Runs state-of-the-art **NudeNet v3.4** deep learning models.
-*   **Imagery Detection**: Detects explicit imagery, suggestive poses, and specific body parts.
-*   **Local Inference**: Operates locally using ONNX Runtime. Your screen data never leaves the device.
-*   **Multiple Models**: A ~12MB "320 (Bundled)" model ships by default for speed, and a higher-accuracy ~100MB "640 (Enhanced)" model can be imported by the user for better accuracy.
+#### 3. Mode 3 — Visual AI Inference (NudeNet)
+* A **NudeNet v3.4** YOLOv8 detector analyses the **full screen** and flags the seven explicit body-part classes with box-level scores.
+* Runs locally through **ONNX Runtime** with automatic hardware acceleration — see below.
+* Choose the bundled 320 "Mobile" model for speed, or import the higher-accuracy 640 "Enhanced" model (~100 MB) from the NudeNet v3.4 release.
 
----
+### ⚡ Visual AI Acceleration (NNAPI / XNNPACK)
+HaramVeil can run the detector on your phone's **AI chip** (GPU/DSP/NPU via Android NNAPI) instead of the CPU — but only when measurement proves it is worth it:
+
+* **Hardware check** (Settings → Advanced → *Visual AI acceleration*): times the real detector on every backend your device offers — standard CPU, XNNPACK-optimized CPU, and NNAPI in FP32/FP16.
+* **Auto mode (default)** enables the AI chip only when it is at least **20% faster** than the CPU and inside the scan latency budget. Phones without a usable accelerator driver never enable it — they simply stay on the fastest CPU path.
+* **Layered safety**: session creation falls back NNAPI → CPU automatically, the thermal guard downgrades hardware acceleration to the CPU for the session if it repeatedly underperforms, and you can always pin any backend manually.
 
 ### 🔒 Hardened Security & Anti-Bypass
-*   **Lockdown Mode**: When adult content is detected, the app can trigger a persistent "Lockdown" that sends the user home and prevents them from returning to the offending app for a set period.
-*   **PIN Protection**: All sensitive settings, including the ability to disable protection or uninstall the app, are gated behind a secure, hashed PIN.
-*   **Security Questions**: Recovery mechanism for the PIN using customizable security questions.
-*   **Device Admin Integration**: Prevents accidental or impulsive uninstallation by requiring the PIN to deactivate the Device Admin receiver.
-*   **Safe Window**: Need to change sensitive settings or add a site to the allowlist? Open a "Safe Window" with your PIN. It auto-resumes protection after a timeout (default 5 mins) to ensure you don't forget to turn it back on.
+* **Lockdown mode**: on detection the app can trigger a persistent lockdown that sends you home and blocks the offending app for a set period.
+* **PIN protection**: all sensitive settings are gated behind a locally-hashed PIN, including the acceleration controls.
+* **Security questions** for PIN recovery.
+* **Device admin integration** prevents impulsive uninstallation.
+* **Safe window**: temporarily pause protection with your PIN; it auto-resumes after a timeout.
+
+### 📊 Insights & Stats
+* Block history, time saved, and trends stored in a **SQLCipher-encrypted** local database keyed to your PIN.
 
 ---
 
-### 📊 Insights & Stats
-*   **Encrypted History**: View your protection stats (number of blocks, time saved) in an encrypted local database.
-*   **Historical Trends**: Track your progress over time with local-only charts.
-*   **SQLCipher Encryption**: All stats are keyed to your PIN hash, ensuring privacy even if your device is compromised.
+## 🤖 AI Models Used
+
+| Model | Size | Purpose | Source | License |
+|---|---|---|---|---|
+| **NudeNet 320n** (bundled) | ~12 MB | Mode 3 explicit-content detection (YOLOv8-nano, 18 body-part classes) | [NudeNet v3.4 weights](https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights) | AGPL-3.0 (upstream repo — see [NOTICE](NOTICE) for the weights note) |
+| **NudeNet 640m** (optional import) | ~100 MB | Higher-accuracy Mode 3 detection (YOLOv8-medium) | same release, imported via the file picker | same |
+| **PP-OCRv5 en rec** (bundled, `fossOnnx` flavor) | ~8 MB | Mode 2 offline OCR (text-line recognition) + `ppocrv5_en_dict.txt` dictionary | [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) v3.7.0 (converted from PaddleOCR) | Apache-2.0 |
+| **ML Kit Text Recognition** (`mlkit` flavor only) | downloaded by Play Services | Alternative OCR engine | Google ML Kit | proprietary — excluded from F-Droid builds |
+
+The detector input is the full screen (letterboxed 320×320 for the bundled model); the OCR path analyses the top and middle text bands. All inference runs on-device.
 
 ---
 
@@ -68,31 +77,37 @@ HaramVeil employs a triple-threat detection pipeline to ensure maximum coverage:
 | Layer | Technology |
 |:--- |:--- |
 | **Language** | Kotlin (100%) |
-| **UI** | Jetpack Compose + Material 3 |
+| **UI** | Jetpack Compose + Material 3 (light & dark themes) |
 | **Async/State** | Coroutines & StateFlow |
 | **Storage** | DataStore (Preferences) + SQLCipher (SQLite) |
-| **AI Engine** | ONNX Runtime (NudeNet v3.4) |
-| **OCR** | ML Kit / RapidOCR (ONNX) |
+| **AI Engine** | ONNX Runtime — **NNAPI / XNNPACK / CPU** execution providers, chosen per device by benchmark |
+| **OCR** | PP-OCRv5 (bundled ONNX) / ML Kit |
 | **Architecture** | Clean Architecture / MVI-ish |
 
 ### Internal Components
-- `accessibility/`: The `HaramVeilAccessibilityService` - the entry point for all monitoring.
-- `detection/`: The core logic for UI scanning (Mode 1), OCR (Mode 2), and AI Inference (Mode 3).
-- `overlay/`: A native window overlay service (`VeilOverlayService`) that draws the "Veil" over the screen with hardware acceleration.
-- `security/`: Advanced PIN management, Bcrypt hashing, and Device Admin controllers.
-- `service/`: Sticky background service lifecycle, boot recovery, and health monitoring workers.
-- `ui/`: Modern Compose-based interface featuring a clean Dashboard, deep Settings, and Stats.
+- `accessibility/`: the `HaramVeilAccessibilityService` — event intake, throttling, fingerprinting (a single tree walk shared by fingerprint + text scan).
+- `detection/`: Mode 1 UI scanning, Mode 2 OCR, Mode 3 ONNX inference + acceleration benchmarking.
+- `overlay/`: hardware-accelerated "Veil" overlay with Quran/hadith display and lockdown handling.
+- `security/`: PIN management (bcrypt), lockdown deadlines, device admin.
+- `service/`: sticky foreground service, health watchdog, boot recovery.
+- `ui/`: Compose dashboard, settings (incl. the acceleration page), stats, PIN flows.
+
+### Energy & Smoothness Design
+- One accessibility-tree traversal per scan (fingerprint and text scan share the collected signals).
+- Mode 3 skips inference when the screen fingerprint hasn't changed (a bounded rescan window keeps video covered).
+- Heartbeat writes slow down while the screen is off; no wake locks; root probes are cached.
+- Settings changes never restart the detection processors unless the gating flags change.
 
 ---
 
 ## 📦 Build Flavors
 
-HaramVeil is available in two flavors to suit different user needs:
-
 | Flavor | OCR Engine | External Deps | Target Audience |
 |:--- |:--- |:--- |:--- |
-| **fossOnnx** | RapidOCR | 100% Open Source | F-Droid users, Privacy advocates |
-| **mlkit** | Google ML Kit | Proprietary Binaries | Performance-focused users |
+| **fossOnnx** | Bundled PP-OCRv5 (ONNX) | 100% open source, no INTERNET permission | F-Droid users, privacy advocates |
+| **mlkit** | Google ML Kit | proprietary Play Services binaries | Play-distributed builds |
+
+Release builds are minified (R8) and split per ABI: `arm64-v8a` (≈52 MB fossOnnx / ≈46 MB mlkit), `armeabi-v7a` (legacy 32-bit devices), `x86_64` (emulators), plus a universal APK.
 
 ---
 
@@ -101,39 +116,39 @@ HaramVeil is available in two flavors to suit different user needs:
 ### For Users
 
 #### Option A: F-Droid (Recommended)
-Once the app is accepted into the main F-Droid repository:
+Once accepted into the main F-Droid repository:
 1. Open [F-Droid](https://f-droid.org/) on your device.
 2. Search for "HaramVeil".
 3. Tap Install.
 
-The F-Droid build uses the `fossOnnx` flavor — 100% open-source, no Google dependencies, no INTERNET permission.
+The F-Droid build uses the `fossOnnx` flavor — 100% open source, no Google dependencies, no INTERNET permission, OCR and the NSFW detector bundled and functional offline.
 
 #### Option B: Direct APK Download
-1. Download the latest APK from the [Releases](https://github.com/darkmaster0345/HaramVeil/releases) page.
-    - Choose `HaramVeil-fossOnnx-release.apk` for the fully open-source version.
-    - Choose `HaramVeil-mlkit-release.apk` for the Google ML Kit version (slightly faster OCR).
+1. Download the per-ABI release APK (`HaramVeil-fossOnnx-arm64-v8a-release.apk` fits most modern phones) or the universal one from [Releases](https://gitlab.com/theredhacker0345/HaramVeil/-/releases).
 2. Install the APK (allow "Unknown Sources" if prompted).
-3. **Important**: Grant **Accessibility** and **Display over other apps** (Overlay) permissions during onboarding.
+3. **Important**: grant **Accessibility** and **Display over other apps** during onboarding.
 4. Set a strong PIN and choose recovery questions you will remember.
+5. (Optional) Run the hardware check under *Advanced Settings → Visual AI acceleration* to enable AI-chip acceleration.
 
 #### Option C: Build from Source
 ```bash
-git clone https://github.com/darkmaster0345/HaramVeil.git
+git clone https://gitlab.com/theredhacker0345/HaramVeil.git
 cd HaramVeil
 ./gradlew :app:assembleFossOnnxRelease
-# APK: app/build/outputs/apk/fossOnnx/release/app-fossOnnx-release-unsigned.apk
+# APKs: app/build/outputs/apk/fossOnnx/release/app-fossOnnx-<abi>-release-unsigned.apk
 ```
 
 ### For Developers
-1. **Prerequisites**: Android Studio Ladybug+, JDK 17, Android SDK 36.
-2. **Clone**: `git clone https://github.com/darkmaster0345/HaramVeil.git`
-3. **Build**:
+1. **Prerequisites**: Android Studio Ladybug+, JDK 21 (Gradle toolchain; Kotlin targets JVM 17), Android SDK 36.
+2. **Clone & build**:
    ```bash
-   # For FOSS version
-   ./gradlew :app:assembleFossOnnxRelease
-   # For ML Kit version
-   ./gradlew :app:assembleMlkitRelease
+   git clone https://gitlab.com/theredhacker0345/HaramVeil.git
+   cd HaramVeil
+   ./gradlew :app:assembleFossOnnxDebug    # FOSS flavor, debug
+   ./gradlew :app:assembleMlkitRelease     # ML Kit flavor, R8 release
+   ./gradlew :app:testFossOnnxDebugUnitTest :app:detekt
    ```
+3. Signed release: configure a keystore in the release build type; unsigned APKs are produced without it.
 
 ---
 
@@ -141,34 +156,40 @@ cd HaramVeil
 
 | Permission | Necessity |
 |:--- |:--- |
-| `BIND_ACCESSIBILITY_SERVICE` | Required to "read" the UI tree for detection. The app cannot function without this. |
-| `SYSTEM_ALERT_WINDOW` | Required to draw the protective veil on top of other apps. |
-| `BIND_DEVICE_ADMIN` | Used to prevent uninstallation without the app PIN. |
-| `RECEIVE_BOOT_COMPLETED` | Ensures protection starts automatically when the phone turns on. |
-| `POST_NOTIFICATIONS` | Displays a persistent notification showing the protection status. |
-| `KILL_BACKGROUND_PROCESSES` | Used in lockdown mode to help close offending applications. |
+| `BIND_ACCESSIBILITY_SERVICE` | Reads the UI tree and takes screenshots for detection. The app cannot function without it. |
+| `SYSTEM_ALERT_WINDOW` | Draws the protective veil over other apps. |
+| `BIND_DEVICE_ADMIN` | Prevents uninstallation without the app PIN. |
+| `RECEIVE_BOOT_COMPLETED` | Restarts protection automatically after boot. |
+| `POST_NOTIFICATIONS` | Persistent protection-status notification. |
+| `KILL_BACKGROUND_PROCESSES` | Used in lockdown mode to close offending applications. |
+| `INTERNET` | **Stripped from release builds** (`tools:node="remove"`). The `mlkit` debug flavor uses it for Google Play Services OCR model delivery. |
 
 ---
 
 ## ❓ Frequently Asked Questions
 
 **Q: Will this slow down my phone?**
-A: HaramVeil is highly optimized. Mode 3 (Visual AI) uses hardware acceleration where available. The app also features a "Battery vs. Protection" slider to adjust scanning frequency.
+A: The detector is deliberately frugal: it only runs when eligible apps are foreground and the screen content changed, skips unchanged screens, and paces itself. If your phone has a usable AI chip, run the hardware check — acceleration typically cuts inference time several-fold. There is also a "Battery vs Protection" slider.
 
 **Q: Is my screen data being uploaded?**
-A: **Never.** All processing (OCR, AI Inference, Keyword Matching) happens strictly on your device. HaramVeil does not even have the `INTERNET` permission in production builds.
+A: **Never.** All processing (OCR, AI inference, keyword matching) happens strictly on your device, and release builds have no INTERNET permission at all.
+
+**Q: Why is there an "AI chip" option?**
+A: The visual detector is the heaviest part of the pipeline. Android's NNAPI can run it on the GPU/DSP/NPU instead of the CPU — but on phones without proper drivers it would be *slower*, so HaramVeil measures first and enables it only when it genuinely helps. You can override the decision on the acceleration page.
 
 **Q: Can I use this with a VPN or DNS blocker?**
-A: Yes! It is highly recommended to use HaramVeil as a "last line of defense" alongside network-level blockers like NextDNS or AdGuard.
+A: Yes — it's recommended. HaramVeil is designed as the last line of defense alongside network-level blockers like NextDNS or AdGuard.
+
+**Q: Why are there multiple APK files?**
+A: Release APKs are split per CPU architecture so you only download the ~26 MB AI runtime once. Most phones need `arm64-v8a`; the universal APK contains everything.
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Whether it's fixing a bug, adding a feature, or improving the blocklist.
-- **Bug Reports**: Open an issue with clear steps to reproduce.
-- **Pull Requests**: Ensure your code follows the existing style and passes all tests.
-- **Translations**: Help us reach the global Ummah by contributing translations.
+We welcome contributions: bug fixes, features, blocklist improvements, translations.
+- **Bug reports**: open an issue with clear reproduction steps and device info.
+- **Pull requests**: follow the existing style; `./gradlew :app:detekt` and the unit tests must pass.
 
 ---
 
@@ -176,7 +197,12 @@ We welcome contributions! Whether it's fixing a bug, adding a feature, or improv
 
 Copyright (C) 2026 Ubaid ur Rehman
 
-This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0**. See the [LICENSE](LICENSE) file for details.
+This program is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
+
+Third-party components have their own licenses; see [LICENSES.md](LICENSES.md) for the full inventory (AI model weights, OCR model + dictionary, font, libraries) and [NOTICE](NOTICE) for compatibility notes. Notable points:
+- The bundled **PP-OCRv5** OCR model and dictionary are **Apache-2.0**.
+- The **NudeNet** detector weights come from an **AGPL-3.0** upstream; the weight-file redistribution terms are discussed in [NOTICE](NOTICE).
+- The optional `mlkit` flavor depends on **proprietary** Google binaries and is not F-Droid eligible.
 
 ---
 
