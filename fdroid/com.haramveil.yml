@@ -19,7 +19,7 @@ Repo: https://gitlab.com/theredhacker0345/HaramVeil.git
 Builds:
   - versionName: 1.0.0
     versionCode: 1
-    commit: COMMIT_HASH_PLACEHOLDER
+    commit: fbb84536dabed9e0c8385f15d5c6a9f1189f5998
     subdir: app
     gradle:
       - fossOnnx
