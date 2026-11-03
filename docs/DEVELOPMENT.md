@@ -5,9 +5,10 @@ Build, run, test, and contribute to HaramVeil.
 ## Prerequisites
 
 - **Android Studio** Ladybug or newer
-- **JDK 17**
+- **JDK 21** (the Gradle daemon toolchain; Kotlin targets JVM 17)
 - **Android SDK** Platform 36 (compile/target), minimum SDK 29
 - An Android 10+ device or emulator for runtime testing
+- **CI**: pushes to the GitLab repository run `detekt`, both flavors' unit tests, and APK assembly via [.gitlab-ci.yml](../.gitlab-ci.yml)
 
 ## Project Structure
 
@@ -36,12 +37,41 @@ The selected flavor sets `BuildConfig.INCLUDE_MLKIT`.
 ./gradlew :app:assembleMlkitRelease
 ```
 
-Output APKs:
+Release builds run R8 + resource shrinking and are **split per ABI**:
 
 ```
-app/build/outputs/apk/fossOnnx/release/app-fossOnnx-release-unsigned.apk
-app/build/outputs/apk/mlkit/release/app-mlkit-release-unsigned.apk
+app/build/outputs/apk/fossOnnx/release/app-fossOnnx-arm64-v8a-release-unsigned.apk   (~52 MB)
+app/build/outputs/apk/fossOnnx/release/app-fossOnnx-armeabi-v7a-release-unsigned.apk
+app/build/outputs/apk/fossOnnx/release/app-fossOnnx-x86_64-release-unsigned.apk
+app/build/outputs/apk/fossOnnx/release/app-fossOnnx-universal-release-unsigned.apk
 ```
+
+### Signing releases
+
+Release APKs are unsigned unless a keystore is configured. For local signing:
+
+```bash
+# one-time: create a keystore
+keytool -genkeypair -v -keystore haramveil.jks -alias haramveil \
+  -keyalg RSA -keysize 4096 -validity 10000
+
+# sign an already-built APK
+zipalign -p -f 4 app-fossOnnx-arm64-v8a-release-unsigned.apk aligned.apk
+apksigner sign --ks haramveil.jks --out HaramVeil-fossOnnx-arm64-v8a-release.apk aligned.apk
+```
+
+Keep the keystore private and out of version control; wire it into the release
+build type via `signingConfigs` when automating releases.
+
+### R8 / ProGuard notes
+
+The rules in `app/proguard-rules.pro` keep the entire `ai.onnxruntime.**` Java
+surface (the engines resolve session metadata **reflectively**) and the ML Kit
+classes (the `mlkit` flavor drives them 100% via reflection). Blanket
+`androidx.**` keeps are deliberately **not** used — library consumer rules handle
+them, and blanket keeps cost ~20 MB of dead dex. If you add reflection-based
+code, add a targeted keep rule and run the manual release pass from
+[TESTING.md](TESTING.md).
 
 ### Install to a connected device
 
@@ -81,7 +111,24 @@ app/build/outputs/apk/mlkit/release/app-mlkit-release-unsigned.apk
   ```
 
 CI workflows in `.github/workflows/` (`build.yml`, `app-ui-test.yml`) run the
-Gradle build, lint, and UI tests on every push.
+Gradle build, lint, and UI tests on the GitHub mirror; the GitLab repository
+runs the equivalent pipeline in [.gitlab-ci.yml](../.gitlab-ci.yml).
+
+## Module Map (detection/inference)
+
+Beyond the [architecture](ARCHITECTURE.md) overview, these are the pieces to know
+when touching detection:
+
+| File | Role |
+|---|---|
+| `utils/ScreenCaptureManager.kt` | Screenshot capture; hardware→software bitmap copy; two paths: `captureFullScreen` (Mode 3) and `captureHaramClip` (Mode 2 OCR bands); process-wide mutex + platform-cooldown spacing |
+| `detection/mode3/InferenceAccelerator` & `AccelerationModels.kt` | Backend enum (Auto/NNAPI/XNNPACK/CPU) and benchmark result model |
+| `detection/mode3/AcceleratorSessionOptions.kt` | Session options per backend; NNAPI needs symbolic dims frozen |
+| `detection/mode3/AccelerationBenchmarkRunner.kt` | Times CPU/XNNPACK/NNAPI-FP32/NNAPI-FP16 (median of 5); NNAPI adopted only if ≥20% faster |
+| `detection/mode3/NudeNetInferenceEngine.kt` | ONNX session lifecycle per (model, accelerator) with automatic CPU fallback; YOLOv8 tensor decoding |
+| `detection/mode3/Mode3Processor.kt` | Trigger loop: rate limit, unchanged-content skip, thermal guard (also downgrades acceleration), full-screen capture |
+| `detection/mode2/FossOcrEngine.kt` | Bundled PP-OCRv5 OCR; dictionary fallback; CTC decode; **input normalisation is plain x/255** (the export folds mean/std into the graph) |
+| `ui/settings/AccelerationScreen.kt` | Acceleration page: verdict, timings, backend picker, hardware-check runner |
 
 ## Key Dependencies
 

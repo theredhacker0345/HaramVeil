@@ -77,7 +77,15 @@ Core logic for the three detection modes.
 - `mode2/` — OCR engines (`FossOcrEngine`, `MLKitOcrEngine`, selector) plus
   `Mode2Processor`, which captures a clip and extracts hidden text.
 - `mode3/` — `NudeNetInferenceEngine` (ONNX Runtime), `NudeNetPreprocessor`,
-  `ModelSelector`, and `Mode3Processor` (visual AI).
+  `ModelSelector`, and `Mode3Processor` (visual AI), plus the acceleration stack:
+  `InferenceAccelerator` / `AccelerationModels` (backend enum + benchmark result),
+  `AcceleratorSessionOptions` (per-backend session options, incl. the NNAPI
+  symbolic-dimension freeze), and `AccelerationBenchmarkRunner` (times
+  CPU / XNNPACK / NNAPI-FP32 / NNAPI-FP16; Auto mode adopts the AI chip only when
+  it is ≥20% faster than the CPU). The engine keeps one session per
+  (model, accelerator) and falls back NNAPI → CPU on driver failure; the thermal
+  guard in `Mode3Processor` also downgrades acceleration mid-session if it
+  repeatedly underperforms.
 
 See [DETECTION.md](DETECTION.md) for details.
 
@@ -150,8 +158,10 @@ Cross-cutting helpers: `DetectionBus` (a `SharedFlow` event bus),
 3. Even on a *clean* Mode 1 scan, a `Mode1Triggered` wake is still published for
    eligible (browser / high-risk / monitored) apps so the visual pipeline can
    catch purely graphical content.
-4. `Mode2Processor` and `Mode3Processor` subscribe to `Mode1Triggered`, capture a
-   screen clip, and run OCR / ONNX inference respectively.
+4. `Mode2Processor` and `Mode3Processor` subscribe to `Mode1Triggered`:
+   Mode 2 captures the banded text clip for OCR; Mode 3 captures the **full
+   screen** for visual inference (captures are serialized process-wide because
+   the platform allows one in-flight `takeScreenshot` per display).
 5. Any layer that detects a violation publishes a `VeilRequested` event.
 6. `VeilOverlayService` renders the veil; `AppLockdownManager` may extend a
    lockdown; `StatsRepository` logs the block to the encrypted database.

@@ -57,12 +57,23 @@ No. To save battery, Mode 3 is woken for browser, high-risk, and monitored apps
 (and any app you *force* into the visual pipeline). It never scans on its own —
 it is always triggered by a Mode 1 window event.
 
+## What is "Visual AI acceleration"?
+
+Mode 3 is the heaviest part of the pipeline. HaramVeil can run its detector on
+your phone's AI chip (GPU/DSP/NPU via NNAPI) or with XNNPACK-optimized CPU
+kernels. **Auto mode measures first**: the hardware check (Settings → Advanced →
+Visual AI acceleration) times every backend and enables the AI chip only when it
+is at least 20% faster than the CPU — so on phones without a usable AI chip it
+stays off automatically. You can always pin a backend manually on that page, and
+everything falls back to the plain CPU if a driver misbehaves.
+
 ## How accurate is detection?
 
 Mode 1 is deterministic (keyword/domain rules). Mode 3 uses a NudeNet model with
-an unsafe-score threshold of `0.35`; you can choose a faster Mobile model (~6 MB)
-or a more accurate Enhanced model (~15 MB). False positives are reduced by only
-veiling on `MEDIUM`/`HIGH` risk matches.
+an unsafe-score threshold of `0.35`; you can keep the bundled Mobile model
+(~12 MB, 320 input) or import the Enhanced model (~100 MB, 640 input) from the
+NudeNet v3.4 release. False positives are reduced by only veiling on
+`MEDIUM`/`HIGH` risk matches.
 
 ## Is it on F-Droid?
 

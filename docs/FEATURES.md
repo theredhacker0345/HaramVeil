@@ -11,9 +11,22 @@ HaramVeil never relies on a single technique:
    blocked keywords and domains. Works in every app, with regex or substring
    rules.
 2. **OCR (Optical Character Recognition)** — reads text hidden inside images and
-   videos by capturing an in-memory screen clip and running OCR locally.
+   videos by capturing an in-memory screen clip and running OCR locally. The FOSS
+   flavor **bundles** a PP-OCRv5 English model + dictionary, so it works fully
+   offline with no downloads and no INTERNET permission.
 3. **Visual AI (NudeNet)** — runs an on-device deep-learning model via ONNX
-   Runtime to detect explicit imagery and poses, even with no text present.
+   Runtime to detect explicit imagery and poses, even with no text present. The
+   detector analyses the **full screen**, not a crop.
+
+### Hardware acceleration
+The visual detector can run on the phone's **AI chip** (GPU/DSP/NPU via Android
+NNAPI) or with **XNNPACK**-optimized CPU kernels. An on-device **hardware check**
+(Settings → Advanced → Visual AI acceleration) times every backend and Auto mode
+uses the fastest one that is measurably worth it — the AI chip is only enabled
+when it beats the CPU by ≥20%, so devices without usable accelerator drivers
+never pay the cost. Backends fall back automatically (NNAPI → CPU on driver
+failure; thermal guard downgrades to the CPU mid-session), and the backend can
+always be pinned manually.
 
 Modes can be toggled independently in Settings, and each is throttled to balance
 protection against battery life.

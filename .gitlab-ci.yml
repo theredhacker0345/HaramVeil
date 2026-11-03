@@ -1,0 +1,59 @@
+# HaramVeil CI: static analysis, unit tests, and APK builds for every push to main.
+# The image provides JDK 21 (the Gradle daemon toolchain); the Android SDK
+# cmdline-tools are fetched and cached so runner images can stay small.
+image: eclipse-temurin:21-jdk
+
+variables:
+  ANDROID_CMDLINE_TOOLS_VERSION: "11076708"
+  ANDROID_HOME: "$CI_PROJECT_DIR/.android-sdk"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+cache:
+  key: android-sdk-and-gradle
+  paths:
+    - .android-sdk/
+    - .gradle/
+
+.setup-sdk: &setup-sdk
+  - if [ ! -d "$ANDROID_HOME/cmdline-tools" ]; then
+      curl -sL -o /tmp/cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS_VERSION}_latest.zip";
+      unzip -q /tmp/cmdtools.zip -d "$ANDROID_HOME";
+      yes | "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true;
+      "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" "build-tools;36.0.0" >/dev/null;
+    fi
+  - rm -f local.properties
+
+stages:
+  - verify
+  - build
+
+detekt:
+  stage: verify
+  script:
+    - *setup-sdk
+    - ./gradlew :app:detekt --no-daemon
+
+unit-tests:
+  stage: verify
+  script:
+    - *setup-sdk
+    - ./gradlew :app:testFossOnnxDebugUnitTest :app:testMlkitDebugUnitTest --no-daemon
+    - mkdir -p junit-reports
+    - cp app/build/test-results/testFossOnnxDebugUnitTest/*.xml junit-reports/ 2>/dev/null || true
+    - cp app/build/test-results/testMlkitDebugUnitTest/*.xml junit-reports/ 2>/dev/null || true
+  artifacts:
+    when: always
+    reports:
+      junit: junit-reports/*.xml
+
+assemble:
+  stage: build
+  script:
+    - *setup-sdk
+    - ./gradlew :app:assembleFossOnnxDebug :app:assembleMlkitDebug --no-daemon
+    - ./gradlew :app:assembleFossOnnxRelease :app:assembleMlkitRelease --no-daemon
+  artifacts:
+    paths:
+      - app/build/outputs/apk/**/release/*.apk
+      - app/build/outputs/apk/**/debug/*.apk
+    expire_in: 1 week

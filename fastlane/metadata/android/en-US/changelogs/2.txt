@@ -1,0 +1,7 @@
+Detection pipeline repaired: visual AI and OCR work again; visual AI now analyses the full screen.
+
+New: hardware acceleration (AI chip via NNAPI) with an on-device benchmark and a new acceleration settings page.
+
+FOSS OCR now works fully offline (bundled PP-OCRv5 model).
+
+Release APKs are now ~50MB per architecture (was 200MB+).

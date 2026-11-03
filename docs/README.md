@@ -20,11 +20,12 @@ DNS blockers and browser extensions are easy to bypass and miss embedded media. 
 
 ## Highlights
 
-- **Three-layer detection** — UI-tree keyword/domain scanning, OCR text extraction, and on-device visual AI inference.
+- **Three-layer detection** — UI-tree keyword/domain scanning, offline OCR (bundled PP-OCRv5 model), and full-screen on-device visual AI inference (NudeNet).
+- **Hardware acceleration** — NNAPI (AI chip) / XNNPACK backends, adopted per device by a built-in benchmark; configurable on a dedicated settings page.
 - **100% offline** — OCR and AI inference are local; the FOSS build ships with **no `INTERNET` permission**.
 - **Hardened anti-bypass** — bcrypt PIN, device-admin uninstall protection, lockdown mode, and a self-closing "Safe Window."
 - **Privacy-first telemetry** — all stats are stored in an SQLCipher database keyed to your PIN hash.
-- **Two build flavors** — `fossOnnx` (fully open source) and `mlkit` (Google ML Kit OCR).
+- **Two build flavors** — `fossOnnx` (fully open source) and `mlkit` (Google ML Kit OCR); R8-minified, per-ABI release APKs (~46–52 MB arm64).
 
 See the [full feature breakdown](docs/FEATURES.md), [architecture](docs/ARCHITECTURE.md), and [detection pipeline](docs/DETECTION.md).
 
@@ -83,9 +84,13 @@ HaramVeil/
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, module responsibilities, data/control flow |
 | [DETECTION.md](docs/DETECTION.md) | The three detection modes and how they cooperate |
 | [SECURITY.md](docs/SECURITY.md) | PIN, lockdown, device admin, safe window, data encryption |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build flavors, setup, testing, contribution guidelines |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build flavors, setup, testing, signing, contribution guidelines |
 | [FEATURES.md](docs/FEATURES.md) | User-facing feature reference |
 | [FAQ.md](docs/FAQ.md) | Frequently asked questions |
+| [TESTING.md](docs/TESTING.md) | Manual device smoke-test checklist before a release |
+| [PRIVACY.md](PRIVACY.md) | Plain-language privacy statement |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [LICENSES.md](LICENSES.md) / [NOTICE](NOTICE) | Third-party asset licenses and compatibility notes |
 
 ---
 
