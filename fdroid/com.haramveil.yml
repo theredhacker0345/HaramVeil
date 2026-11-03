@@ -1,63 +1,61 @@
+# F-Droid build metadata for HaramVeil.
+#
+# This file is a template for the entry that must be added to the
+# fdroiddata repository (https://gitlab.com/fdroid/fdroiddata) as
+# metadata/com.haramveil.yml when submitting the app for inclusion.
 Categories:
   - Security
-  - Religion
   - Internet
 License: GPL-3.0-or-later
 AuthorName: Ubaid ur Rehman
-AuthorWebSite: https://github.com/darkmaster0345
-WebSite: https://github.com/darkmaster0345/HaramVeil
-SourceCode: https://github.com/darkmaster0345/HaramVeil
-IssueTracker: https://github.com/darkmaster0345/HaramVeil/issues
-Changelog: https://github.com/darkmaster0345/HaramVeil/releases
+WebSite: https://gitlab.com/theredhacker0345/HaramVeil
+SourceCode: https://gitlab.com/theredhacker0345/HaramVeil
+IssueTracker: https://gitlab.com/theredhacker0345/HaramVeil/-/issues
+Changelog: https://gitlab.com/theredhacker0345/HaramVeil/-/releases
 AutoName: HaramVeil
 RepoType: git
-Repo: https://github.com/darkmaster0345/HaramVeil.git
-
-Binaries: https://github.com/darkmaster0345/HaramVeil/releases/download/v%v/HaramVeil-fossOnnx-release-unsigned.apk
+Repo: https://gitlab.com/theredhacker0345/HaramVeil.git
 
 Builds:
   - versionName: 1.0.0
     versionCode: 1
-    commit: v1.0.0
+    commit: COMMIT_HASH_PLACEHOLDER
     subdir: app
     gradle:
       - fossOnnx
+    gradleprops:
+      - fdroidBuild
+    output: build/outputs/apk/fossOnnx/release/*.apk
     scanignore:
+      # Pre-trained model weights: data assets, not executables.
       - src/main/assets/320n.onnx
-    scandelete:
-      - src/test/resources
-      - src/androidTest/assets
+      - src/fossOnnx/assets/en_PP-OCRv5_rec.onnx
+      # Bundled font (SIL OFL 1.1).
+      - src/main/res/font/amiri_regular.ttf
 
 MaintainerNotes: |
-  This app is built using the fossOnnx flavor, which excludes all proprietary
-  dependencies (Google Play Services, ML Kit). Only FOSS libraries are used.
+  The fossOnnx flavor is the only FOSS-clean build: it has no Google Play
+  Services / ML Kit dependency, and release builds strip the INTERNET
+  permission (app/src/release/AndroidManifest.xml, tools:node="remove").
+  -PfdroidBuild disables ABI splits so the build yields exactly one
+  universal APK.
 
-  The app bundles one ONNX model (320n.onnx, 12 MB) in src/main/assets/. This is
-  a NudeNet v3.4 weight file from https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights
-  The upstream repository is AGPL-3.0 licensed. The weight file is a pre-trained
-  neural network (data, not executable code) and is treated as a data asset.
-  scanignore is used to suppress F-Droid's binary scanner for this file.
+  Bundled AI assets (data, not executable code):
+  - src/main/assets/320n.onnx — NudeNet v3.4 detector weights (~12 MB),
+    https://github.com/notAI-tech/NudeNet/releases/tag/v3.4-weights
+    (upstream repo is AGPL-3.0; weights redistributed as data assets —
+    see LICENSES.md and NOTICE in the source repo for the discussion).
+  - src/fossOnnx/assets/en_PP-OCRv5_rec.onnx + ppocrv5_en_dict.txt —
+    PP-OCRv5 English OCR model + dictionary (~8 MB), Apache-2.0, from
+    https://github.com/RapidAI/RapidOCR (v3.7.0) / PaddleOCR.
+  - src/main/res/font/amiri_regular.ttf — Amiri font, SIL OFL 1.1.
 
-  The larger 640m.onnx (99 MB) model is NOT bundled in the APK. Instead, users
-  who want the "Enhanced" model download it themselves via their browser and
-  import it via the Android file picker (Storage Access Framework). This keeps
-  the APK small (164 MB instead of 263 MB) and preserves the no-INTERNET-permission
-  guarantee — the app never connects to the network; the user's browser does.
+  The 640m detector is NOT bundled; users import it themselves via the
+  file picker, so the app never downloads anything (no INTERNET permission).
 
-  The hadiths_ayahs.json asset contains Quranic verses and Hadith text which
-  are centuries-old public domain religious texts.
-
-  The Amiri font (amiri_regular.ttf) is licensed under the SIL Open Font
-  License (OFL) 1.1 — see https://github.com/aliftype/amiri
-
-  The ModelDownloadManager.kt contains code to download a RapidOCR model from
-  modelscope.cn at runtime, but this code path is dead in the fossOnnx release
-  build because the INTERNET permission is stripped via the release manifest
-  (app/src/release/AndroidManifest.xml uses tools:node="remove"). The download
-  URL is retained in source for debug-build convenience only.
-
-  No API keys, no tracking, no analytics, no advertising. All processing is
-  on-device.
+  ModelDownloadManager.kt retains an optional model-update download path,
+  but that code is unreachable in release builds because the INTERNET
+  permission is stripped; it exists for local debug builds only.
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags

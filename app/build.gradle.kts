@@ -71,16 +71,20 @@ android {
         }
     }
 
-    splits {
-        abi {
-            // Per-ABI APKs keep the ~26 MB ONNX runtime library from quadrupling the
-            // download: arm64-v8a covers virtually every minSdk-29 device, armeabi-v7a
-            // stays for the few remaining 32-bit budget phones, and x86_64 exists only
-            // for emulators.
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64")
-            isUniversalApk = true
+    // Per-ABI splits keep the ~26 MB ONNX runtime library from quadrupling the
+    // download: arm64-v8a covers virtually every minSdk-29 device, armeabi-v7a
+    // stays for the few remaining 32-bit budget phones, and x86_64 exists only
+    // for emulators. F-Droid builds pass -PfdroidBuild to produce a single
+    // universal APK — one APK per Build metadata entry is what fdroidserver
+    // expects, and it keeps the reproducible-build comparison simple.
+    if (!project.hasProperty("fdroidBuild")) {
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include("arm64-v8a", "armeabi-v7a", "x86_64")
+                isUniversalApk = true
+            }
         }
     }
 

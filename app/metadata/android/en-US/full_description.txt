@@ -1,0 +1,26 @@
+HaramVeil is an on-device Android content filter built for Muslims who want practical help lowering the gaze.
+
+It uses three local detection layers:
+
+- Mode 1 scans the visible app UI tree for risky text, view IDs, and monitored packages, including browser address-bar domains.
+- Mode 2 runs on-device OCR over captured screen regions to read text hidden inside images and overlays. An English PP-OCRv5 model and its dictionary are bundled in the FOSS build, so OCR works fully offline.
+- Mode 3 runs NudeNet ONNX inference on the full screen to detect explicit imagery even when no text is present.
+
+On modern phones the detector can run on the device's AI chip (GPU/DSP/NPU) through Android NNAPI, or with XNNPACK-optimized CPU kernels. A built-in hardware check measures every backend on the specific phone and only enables the AI chip when it is measurably faster — devices without a usable accelerator never pay for it. The backend can also be pinned manually on the acceleration settings page.
+
+When HaramVeil blocks content, it shows a themed veil overlay, returns to the launcher, and places the app into lockdown for the configured duration.
+
+Key points:
+
+- No cloud detection — all processing happens on-device
+- No tracking — no analytics, no telemetry, no data leaves your phone
+- No INTERNET permission in release builds
+- Bundled NSFW detector and OCR model — no downloads required
+- Local encrypted history (SQLCipher, keyed to your PIN)
+- PIN-protected settings with security questions
+- Device Admin and boot recovery
+- GPL-3.0-or-later licensed
+
+The F-Droid build uses the fossOnnx flavor, which includes only open-source dependencies (ONNX Runtime, AndroidX, Coil, SQLCipher, Bcrypt). No proprietary libraries such as Google Play Services or ML Kit are included.
+
+Bundled AI assets: NudeNet v3.4 detector weights (AGPL-3.0 upstream, ~12 MB) and a PP-OCRv5 recognition model with dictionary (Apache-2.0, ~8 MB). The optional higher-accuracy 640m detector is not bundled; users who want it import the file themselves.
