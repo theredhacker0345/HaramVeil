@@ -60,11 +60,27 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinking: the debug APK bundles four ONNX runtime ABIs (~26 MB each) and
+            // ships unminified; without shrinking, release APKs would be in the 60 MB range.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+    }
+
+    splits {
+        abi {
+            // Per-ABI APKs keep the ~26 MB ONNX runtime library from quadrupling the
+            // download: arm64-v8a covers virtually every minSdk-29 device, armeabi-v7a
+            // stays for the few remaining 32-bit budget phones, and x86_64 exists only
+            // for emulators.
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
         }
     }
 

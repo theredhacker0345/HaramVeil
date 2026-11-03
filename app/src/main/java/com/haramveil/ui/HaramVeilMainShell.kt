@@ -88,6 +88,7 @@ import com.haramveil.data.models.ProtectionSettings
 import com.haramveil.data.models.TextRecognitionEngine
 import com.haramveil.data.models.VisualModelOption
 import com.haramveil.detection.mode1.UITreeScanner
+import com.haramveil.detection.mode3.AccelerationBenchmarkRunner
 import com.haramveil.detection.mode3.ModelSelectionState
 import com.haramveil.detection.mode3.ModelSelector
 import com.haramveil.security.AppLockdownManager
@@ -99,6 +100,7 @@ import com.haramveil.service.ProtectionBootstrapStore
 import com.haramveil.service.ProtectionResumeScheduler
 import com.haramveil.ui.dashboard.DashboardRoute
 import com.haramveil.ui.dashboard.DashboardScreen
+import com.haramveil.ui.settings.AccelerationScreen
 import com.haramveil.ui.settings.AdvancedSettingsScreen
 import com.haramveil.ui.settings.SettingsRoute
 import com.haramveil.ui.settings.SettingsScreen
@@ -110,6 +112,7 @@ import com.haramveil.ui.stats.StatsRoute
 import com.haramveil.ui.stats.StatsScreen
 import com.haramveil.utils.BatteryOptimizationHelper
 import com.haramveil.utils.RootAccessHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -280,6 +283,9 @@ fun HaramVeilMainShell(
     val statsRetentionDays = protectionSettings.statsRetentionDays
     val topCapturePercent = protectionSettings.topCapturePercent.toFloat()
     val middleCapturePercent = protectionSettings.middleCapturePercent.toFloat()
+    val selectedAccelerator = protectionSettings.selectedAccelerator
+    val accelerationBenchmark = protectionSettings.accelerationBenchmark
+    var isAccelerationBenchmarkRunning by remember { mutableStateOf(false) }
     val activeLockdowns = runtimeState.activeLockdowns
     val foregroundServiceActive = runtimeState.foregroundServiceActive
     val lastServiceHeartbeatMs = runtimeState.lastServiceHeartbeatMs
@@ -835,6 +841,52 @@ fun HaramVeilMainShell(
                                             config.copy(lockdownOverride = option)
                                         } else {
                                             config
+                                        }
+                                    }
+                                },
+                                onOpenAcceleration = {
+                                    navController.navigate(SettingsRoute.accelerationRoute)
+                                },
+                            )
+                        }
+                    }
+                    composable(SettingsRoute.accelerationRoute) {
+                        PinGateComposable(
+                            authenticated = settingsUnlocked,
+                            pinManager = pinManager,
+                            securityQuestionsManager = securityQuestionsManager,
+                            title = "Enter your PIN to change Visual AI acceleration",
+                            subtitle = "Acceleration changes how the image detector runs, so HaramVeil keeps it behind the same local PIN gate.",
+                            onAuthenticated = {
+                                settingsUnlocked = true
+                            },
+                        ) {
+                            AccelerationScreen(
+                                benchmark = accelerationBenchmark,
+                                selectedAccelerator = selectedAccelerator,
+                                isBenchmarkRunning = isAccelerationBenchmarkRunning,
+                                onBack = { navController.popBackStack() },
+                                onAcceleratorSelected = { accelerator ->
+                                    scope.launch {
+                                        protectionPreferencesRepository.saveSelectedAccelerator(accelerator)
+                                    }
+                                },
+                                onRunBenchmark = {
+                                    if (!isAccelerationBenchmarkRunning) {
+                                        isAccelerationBenchmarkRunning = true
+                                        scope.launch {
+                                            try {
+                                                val summary = AccelerationBenchmarkRunner(context).run()
+                                                protectionPreferencesRepository.saveAccelerationBenchmark(summary)
+                                            } catch (cancellation: CancellationException) {
+                                                throw cancellation
+                                            } catch (failure: Exception) {
+                                                snackbarHostState.showSnackbar(
+                                                    "Hardware check failed: ${failure.message ?: "unknown error"}",
+                                                )
+                                            } finally {
+                                                isAccelerationBenchmarkRunning = false
+                                            }
                                         }
                                     }
                                 },

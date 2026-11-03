@@ -41,4 +41,6 @@ data class ProtectionSettings(
     val accessibilitySettingsPromptShown: Boolean = false,
     val batteryOptimizationPromptShown: Boolean = false,
     val batteryOptimizationCompleted: Boolean = false,
+    val selectedAccelerator: InferenceAccelerator = InferenceAccelerator.AUTO,
+    val accelerationBenchmark: AccelerationBenchmarkSummary? = null,
 )

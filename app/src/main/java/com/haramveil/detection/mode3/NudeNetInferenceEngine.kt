@@ -26,7 +26,9 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.os.SystemClock
+import com.haramveil.data.models.InferenceAccelerator
 import com.haramveil.data.models.ModelSource
+import com.haramveil.data.models.ResolvedAccelerator
 import com.haramveil.utils.DispatcherProvider
 import com.haramveil.utils.DebugLog
 import kotlinx.coroutines.withContext
@@ -50,6 +52,9 @@ data class DetectionResult(
 class NudeNetInferenceEngine(
     private val context: Context,
     private val dispatcherProvider: DispatcherProvider = DispatcherProvider(),
+    private val acceleratorProvider: () -> ResolvedAccelerator = {
+        ResolvedAccelerator(InferenceAccelerator.CPU)
+    },
 ) {
     private val environment = OrtEnvironment.getEnvironment()
     private val sessionLock = Any()
@@ -59,6 +64,9 @@ class NudeNetInferenceEngine(
 
     @Volatile
     private var activeModelConfig: ModelConfig? = null
+
+    @Volatile
+    private var activeAccelerator: ResolvedAccelerator = acceleratorProvider()
 
     @Volatile
     private var cachedModelFile: File? = null
@@ -152,19 +160,30 @@ class NudeNetInferenceEngine(
         }
     }
 
+    /**
+     * Returns the cached session only when the model and the requested accelerator are
+     * unchanged; a provider switch (e.g. a thermal fallback to the CPU) must rebuild it.
+     */
+    private fun usableCachedSession(
+        modelConfig: ModelConfig,
+        resolvedAccelerator: ResolvedAccelerator,
+    ): OrtSession? {
+        val candidate = activeSession
+        return candidate?.takeIf { !closed && isRequestedSession(modelConfig, resolvedAccelerator) }
+    }
+
+    private fun isRequestedSession(
+        modelConfig: ModelConfig,
+        resolvedAccelerator: ResolvedAccelerator,
+    ): Boolean = activeModelConfig == modelConfig && activeAccelerator == resolvedAccelerator
+
     private fun ensureSession(modelConfig: ModelConfig): OrtSession {
-        val existingSession = activeSession
-        if (!closed && existingSession != null && activeModelConfig == modelConfig) {
-            return existingSession
-        }
+        val resolvedAccelerator = acceleratorProvider()
+        usableCachedSession(modelConfig, resolvedAccelerator)?.let { return it }
 
         synchronized(sessionLock) {
             check(!closed) { ClosedMessage }
-            activeSession?.let { session ->
-                if (activeModelConfig == modelConfig) {
-                    return session
-                }
-            }
+            usableCachedSession(modelConfig, resolvedAccelerator)?.let { return it }
 
             activeSession?.close()
             activeSession = null
@@ -174,13 +193,28 @@ class NudeNetInferenceEngine(
 
             val modelFile = resolveModelFile(modelConfig)
             val session = try {
-                OrtSession.SessionOptions().use { sessionOptions ->
-                    sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
-                    environment.createSession(modelFile.absolutePath, sessionOptions)
+                createSessionForAccelerator(modelFile, resolvedAccelerator, modelConfig.inputSize)
+            } catch (acceleratorFailure: Exception) {
+                if (resolvedAccelerator.accelerator == InferenceAccelerator.CPU) {
+                    deleteOwnedModelFile(modelFile)
+                    rethrowFailure(acceleratorFailure)
                 }
-            } catch (failure: Exception) {
-                deleteOwnedModelFile(modelFile)
-                rethrowFailure(failure)
+                // Hardware acceleration is opportunistic: a refusing driver (or a future
+                // Android without NNAPI) degrades one step instead of failing Mode 3.
+                DebugLog.w(context, LogTag) {
+                    "Accelerator ${resolvedAccelerator.accelerator.displayName} failed " +
+                        "(${acceleratorFailure.message}); falling back to the CPU."
+                }
+                try {
+                    createSessionForAccelerator(
+                        modelFile,
+                        ResolvedAccelerator(InferenceAccelerator.CPU),
+                        modelConfig.inputSize,
+                    )
+                } catch (cpuFailure: Exception) {
+                    deleteOwnedModelFile(modelFile)
+                    rethrowFailure(cpuFailure)
+                }
             }
 
             // Only cache the file for deletion if we created a copy in cacheDir.
@@ -191,6 +225,18 @@ class NudeNetInferenceEngine(
             return session
         }
     }
+
+    private fun createSessionForAccelerator(
+        modelFile: File,
+        resolved: ResolvedAccelerator,
+        inputSize: Int,
+    ): OrtSession =
+        OrtSession.SessionOptions().use { sessionOptions ->
+            AcceleratorSessionOptions.configure(sessionOptions, resolved, inputSize)
+            environment.createSession(modelFile.absolutePath, sessionOptions)
+        }.also { session ->
+            activeAccelerator = resolved
+        }
 
     private fun resolveInputName(session: OrtSession): String {
         val declaredNames = session.inputInfo.keys

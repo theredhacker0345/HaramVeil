@@ -67,6 +67,17 @@ internal object HaramVeilPreferenceKeys {
     val BatteryOptimizationPromptShown = booleanPreferencesKey("battery_optimization_prompt_shown")
     val BatteryOptimizationCompleted = booleanPreferencesKey("battery_optimization_completed")
 
+    // Visual AI acceleration benchmark (per-device, measured not assumed).
+    val SelectedAccelerator = stringPreferencesKey("selected_accelerator")
+    val AccelerationCpuMs = longPreferencesKey("acceleration_cpu_ms")
+    val AccelerationXnnpackMs = longPreferencesKey("acceleration_xnnpack_ms")
+    val AccelerationNnapiMs = longPreferencesKey("acceleration_nnapi_ms")
+    val AccelerationNnapiFp16 = booleanPreferencesKey("acceleration_nnapi_fp16")
+    val AccelerationNnapiAvailable = booleanPreferencesKey("acceleration_nnapi_available")
+    val AccelerationWinner = stringPreferencesKey("acceleration_winner")
+    val AccelerationDeviceModel = stringPreferencesKey("acceleration_device_model")
+    val AccelerationMeasuredAtMs = longPreferencesKey("acceleration_measured_at_ms")
+
     fun securityQuestionKey(slot: Int): Preferences.Key<String> =
         stringPreferencesKey("security_question_${slot}_id")
 

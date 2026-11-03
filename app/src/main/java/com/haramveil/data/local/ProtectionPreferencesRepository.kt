@@ -19,8 +19,11 @@
 package com.haramveil.data.local
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import com.haramveil.data.models.AccelerationBenchmarkSummary
+import com.haramveil.data.models.InferenceAccelerator
 import com.haramveil.data.models.ProtectionSettings
 import com.haramveil.data.models.TextRecognitionEngine
 import com.haramveil.data.models.VisualModelOption
@@ -92,10 +95,63 @@ class ProtectionPreferencesRepository(
                     ?: false,
                 batteryOptimizationCompleted = preferences[HaramVeilPreferenceKeys.BatteryOptimizationCompleted]
                     ?: false,
+                selectedAccelerator = InferenceAccelerator.fromStorageValue(
+                    preferences[HaramVeilPreferenceKeys.SelectedAccelerator],
+                ) ?: InferenceAccelerator.AUTO,
+                accelerationBenchmark = readAccelerationBenchmark(preferences),
             )
         }
 
+    /**
+     * Reads the persisted acceleration benchmark. A summary is only considered valid when
+     * it names a known winner with CPU timings; partially-written entries (process death
+     * mid-save) are treated as "no benchmark yet" and AUTO resolves to the standard CPU.
+     */
+    private fun readAccelerationBenchmark(
+        preferences: Preferences,
+    ): AccelerationBenchmarkSummary? {
+        val winner = InferenceAccelerator.fromStorageValue(
+            preferences[HaramVeilPreferenceKeys.AccelerationWinner],
+        ) ?: return null
+        val cpuLatencyMs = preferences[HaramVeilPreferenceKeys.AccelerationCpuMs] ?: return null
+        val measuredAt = preferences[HaramVeilPreferenceKeys.AccelerationMeasuredAtMs] ?: return null
+
+        return AccelerationBenchmarkSummary(
+            cpuLatencyMs = cpuLatencyMs,
+            xnnpackLatencyMs = preferences[HaramVeilPreferenceKeys.AccelerationXnnpackMs],
+            nnapiLatencyMs = preferences[HaramVeilPreferenceKeys.AccelerationNnapiMs],
+            nnapiUseFp16 = preferences[HaramVeilPreferenceKeys.AccelerationNnapiFp16] ?: false,
+            nnapiAvailable = preferences[HaramVeilPreferenceKeys.AccelerationNnapiAvailable] ?: false,
+            winner = winner,
+            deviceModel = preferences[HaramVeilPreferenceKeys.AccelerationDeviceModel].orEmpty(),
+            measuredAtEpochMs = measuredAt,
+        )
+    }
+
     suspend fun readSettings(): ProtectionSettings = settingsFlow.first()
+
+    suspend fun saveSelectedAccelerator(accelerator: InferenceAccelerator) {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            preferences[HaramVeilPreferenceKeys.SelectedAccelerator] = accelerator.storageValue
+        }
+    }
+
+    suspend fun saveAccelerationBenchmark(summary: AccelerationBenchmarkSummary) {
+        context.haramVeilPreferencesDataStore.edit { preferences ->
+            preferences[HaramVeilPreferenceKeys.AccelerationCpuMs] = summary.cpuLatencyMs
+            summary.xnnpackLatencyMs?.let { value ->
+                preferences[HaramVeilPreferenceKeys.AccelerationXnnpackMs] = value
+            } ?: preferences.remove(HaramVeilPreferenceKeys.AccelerationXnnpackMs)
+            summary.nnapiLatencyMs?.let { value ->
+                preferences[HaramVeilPreferenceKeys.AccelerationNnapiMs] = value
+            } ?: preferences.remove(HaramVeilPreferenceKeys.AccelerationNnapiMs)
+            preferences[HaramVeilPreferenceKeys.AccelerationNnapiFp16] = summary.nnapiUseFp16
+            preferences[HaramVeilPreferenceKeys.AccelerationNnapiAvailable] = summary.nnapiAvailable
+            preferences[HaramVeilPreferenceKeys.AccelerationWinner] = summary.winner.storageValue
+            preferences[HaramVeilPreferenceKeys.AccelerationDeviceModel] = summary.deviceModel
+            preferences[HaramVeilPreferenceKeys.AccelerationMeasuredAtMs] = summary.measuredAtEpochMs
+        }
+    }
 
     suspend fun saveMonitoredPackages(packageNames: Set<String>) {
         context.haramVeilPreferencesDataStore.edit { preferences ->

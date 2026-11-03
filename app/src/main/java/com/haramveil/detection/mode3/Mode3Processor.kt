@@ -26,7 +26,9 @@ import android.os.SystemClock
 import com.haramveil.data.local.HaramVeilPreferenceKeys
 import com.haramveil.data.local.ProtectionPreferencesRepository
 import com.haramveil.data.local.StatsRepository
+import com.haramveil.data.models.InferenceAccelerator
 import com.haramveil.data.models.ProtectionSettings
+import com.haramveil.data.models.ResolvedAccelerator
 import com.haramveil.utils.DetectionBus
 import com.haramveil.utils.DetectionEvent
 import com.haramveil.utils.DetectionTriggerMode
@@ -66,6 +68,7 @@ class Mode3Processor(
     private val inferenceEngine = NudeNetInferenceEngine(
         context = context,
         dispatcherProvider = dispatcherProvider,
+        acceleratorProvider = ::resolveAccelerator,
     )
     private var processorJob: Job? = null
     private var lastInferenceStartedAtMs = 0L
@@ -74,6 +77,31 @@ class Mode3Processor(
 
     /** package -> (content fingerprint, completion time) of the last real inference. */
     private val lastInferenceByPackage = HashMap<String, LastInferenceRecord>()
+
+    /**
+     * Set by the thermal guard when hardware acceleration repeatedly underperforms on
+     * this device: that session falls back to the CPU immediately instead of waiting for
+     * the user to re-run the benchmark.
+     */
+    @Volatile
+    private var acceleratorFallbackOverride: ResolvedAccelerator? = null
+
+    private fun resolveAccelerator(): ResolvedAccelerator {
+        acceleratorFallbackOverride?.let { fallback -> return fallback }
+
+        val settings = settingsProvider()
+        val benchmark = settings.accelerationBenchmark
+        return when (settings.selectedAccelerator) {
+            InferenceAccelerator.AUTO ->
+                benchmark?.let { summary ->
+                    ResolvedAccelerator(summary.winner, summary.nnapiUseFp16)
+                } ?: ResolvedAccelerator(InferenceAccelerator.CPU)
+            InferenceAccelerator.NNAPI ->
+                ResolvedAccelerator(InferenceAccelerator.NNAPI, benchmark?.nnapiUseFp16 ?: false)
+            InferenceAccelerator.XNNPACK -> ResolvedAccelerator(InferenceAccelerator.XNNPACK)
+            InferenceAccelerator.CPU -> ResolvedAccelerator(InferenceAccelerator.CPU)
+        }
+    }
 
     fun start() {
         if (processorJob?.isActive == true) {
@@ -125,6 +153,7 @@ class Mode3Processor(
         lastInferenceStartedAtMs = 0L
         consecutiveSlowInferences = 0
         thermalRateLimitOverrideMs = null
+        acceleratorFallbackOverride = null
         synchronized(lastInferenceByPackage) { lastInferenceByPackage.clear() }
     }
 
@@ -300,8 +329,22 @@ class Mode3Processor(
             // slowing visual scans down forever.
             thermalRateLimitOverrideMs = newRateLimitMs
             consecutiveSlowInferences = 0
+
+            val fallbackMessage = if (acceleratorFallbackOverride == null &&
+                resolveAccelerator().accelerator != InferenceAccelerator.CPU
+            ) {
+                // Repeatedly slow inference while hardware acceleration is active means the
+                // benchmark verdict no longer matches reality (throttling, driver trouble).
+                // The rest of this session runs on the CPU; a re-run of the benchmark can
+                // re-enable acceleration once the device cools down.
+                acceleratorFallbackOverride = ResolvedAccelerator(InferenceAccelerator.CPU)
+                " Thermal guard also fell back from hardware acceleration to the CPU for this session."
+            } else {
+                ""
+            }
+
             val warningMessage =
-                "Thermal guard raised visual scan pacing to ${newRateLimitMs}ms after repeated slow inferences in $packageName."
+                "Thermal guard raised visual scan pacing to ${newRateLimitMs}ms after repeated slow inferences in $packageName.$fallbackMessage"
             DetectionBus.publishMode3Clear(
                 packageName = packageName,
                 details = warningMessage,

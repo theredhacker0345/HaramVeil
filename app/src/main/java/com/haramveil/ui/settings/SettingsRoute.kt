@@ -21,6 +21,7 @@ package com.haramveil.ui.settings
 object SettingsRoute {
     const val route = "main/settings"
     const val advancedRoute = "main/settings/advanced"
+    const val accelerationRoute = "main/settings/acceleration"
     const val changePinRoute = "main/settings/change-pin"
     const val testRoute = "main/settings/test"
 }
