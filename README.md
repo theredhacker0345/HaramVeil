@@ -1,6 +1,6 @@
 # <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="48" height="48" align="center" /> HaramVeil
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![License: GPL v3+](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Android Version](https://img.shields.io/badge/Android-10%2B-green.svg?logo=android&logoColor=white)](https://developer.android.com/about/versions/10)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![F-Droid FOSS](https://img.shields.io/badge/F--Droid-FOSS%20Ready-brightgreen.svg?logo=f-droid&logoColor=white)](https://f-droid.org/)
@@ -197,7 +197,7 @@ We welcome contributions: bug fixes, features, blocklist improvements, translati
 
 Copyright (C) 2026 Ubaid ur Rehman
 
-This program is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
+This program is licensed under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later) — see [LICENSE](LICENSE). The source-file headers carry the "or (at your option) any later version" grant, which also keeps the project unambiguously combinable with AGPL-3.0 upstream components such as the NudeNet weights.
 
 Third-party components have their own licenses; see [LICENSES.md](LICENSES.md) for the full inventory (AI model weights, OCR model + dictionary, font, libraries) and [NOTICE](NOTICE) for compatibility notes. Notable points:
 - The bundled **PP-OCRv5** OCR model and dictionary are **Apache-2.0**.

@@ -4,7 +4,7 @@ This file documents the licenses of all third-party assets bundled in the APK.
 
 ## Source Code
 
-- **License**: GNU General Public License v3.0 only (GPL-3.0-only)
+- **License**: GNU General Public License v3.0 or later (GPL-3.0-or-later)
 - **File**: [LICENSE](LICENSE)
 
 ## Third-Party Libraries

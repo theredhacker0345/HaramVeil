@@ -7,7 +7,7 @@
 - **Platform:** Android 10 (API 29) and above, targeting Android 16 (API 36)
 - **Language:** 100% Kotlin (Kotlin 2.1, JVM target 17)
 - **UI:** Jetpack Compose + Material 3
-- **License:** GNU GPL v3.0
+- **License:** GNU GPL v3.0 or later (GPL-3.0-or-later)
 - **Repository:** `darkmaster0345/HaramVeil`
 
 ---
