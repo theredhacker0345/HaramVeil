@@ -4,7 +4,7 @@ All notable changes to HaramVeil are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.1.0] — 2026-11-03
+## [1.0.0] — 2026-11-03
 
 ### Fixed
 - **Visual detection (Mode 3) and OCR (Mode 2) were completely broken**: every
@@ -41,4 +41,3 @@ adheres to [Semantic Versioning](https://semver.org/).
 - Proper light theme in addition to the dark one; sliders persist on release instead
   of every drag tick.
 
-## [1.0.0] — Initial release
