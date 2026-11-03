@@ -1,18 +1,24 @@
 # HaramVeil CI — kept deliberately lean to conserve GitLab pipeline minutes.
 #
+# Execution image: ci/Dockerfile builds ci-android:36-jdk21 (JDK 21 + Android
+# SDK 36) into this project's container registry via the `prepare-ci-image`
+# job — automatic whenever ci/Dockerfile changes, manual otherwise. Jobs use
+# that image directly: no SDK download, no apt installs, no .android-sdk cache.
+#
 # On push to main:
-#   - one `verify` job (detekt + unit tests for both flavors in a single Gradle
-#     invocation), and it is SKIPPED entirely when the commit only touches
-#     docs/metadata (no pipeline minutes spent).
-#   - NO APK builds on push. APK assembly (two R8 releases across 4 ABIs each)
-#     is expensive, so it only runs as a MANUAL job: press the play button on
-#     the pipeline in the GitLab web UI, or start the pipeline manually
-#     (Run pipeline) and trigger "build-apks".
-image: eclipse-temurin:21-jdk
+#   - one `verify` job (detekt + fossOnnx unit tests + mlkit compile check in a
+#     single Gradle invocation), SKIPPED entirely when the commit only touches
+#     docs/metadata (no pipeline minutes spent). Unit tests live in the shared
+#     main source set, so the mlkit flavor is verified by compilation instead of
+#     re-running identical tests.
+#   - NO APK builds on push. Each flavor's release build is a MANUAL job — press
+#     the play button next to it in the pipeline view (or Run pipeline).
+image:
+  name: "$CI_IMAGE"
 
 workflow:
   rules:
-    # Main pushes: verify (skipped for docs-only commits) + manual APK build.
+    # Main pushes: verify (skipped for docs-only commits) + manual APK builds.
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
     # Manual "Run pipeline" (web) / schedules: full control from the UI.
     - if: '$CI_PIPELINE_SOURCE == "web"'
@@ -24,36 +30,17 @@ default:
   interruptible: true
 
 variables:
-  ANDROID_CMDLINE_TOOLS_VERSION: "11076708"
-  ANDROID_HOME: "$CI_PROJECT_DIR/.android-sdk"
-  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
-  # Baked JDK21 + SDK36 image in this project's container registry, built by
-  # prepare-ci-image below. Until the first build completes, jobs fall back to
-  # the public base image and install the SDK via the sdk-setup anchor.
   CI_IMAGE: "$CI_REGISTRY_IMAGE/ci-android:36-jdk21"
   GIT_DEPTH: "1"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
   # Avoids Gradle building heavy watching infrastructure in ephemeral CI containers.
   GRADLE_OPTS: "-Dorg.gradle.vfs.watch=false"
 
 cache:
-  key: haramveil-sdk-gradle-v1
+  key: haramveil-gradle-v1
   paths:
-    - .android-sdk/
     - .gradle/caches/
     - .gradle/wrapper/
-
-# Runs before every job. eclipse-temurin images are Ubuntu-based; curl/unzip may
-# be missing. The Android SDK is downloaded once and kept in the pipeline cache.
-.setup-sdk: &setup-sdk
-  - if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq curl unzip; fi
-  - if [ ! -d "$ANDROID_HOME/cmdline-tools" ]; then
-      curl -sL -o /tmp/cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS_VERSION}_latest.zip";
-      unzip -q /tmp/cmdtools.zip -d "$ANDROID_HOME";
-      yes | "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true;
-      "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" "build-tools;36.0.0" >/dev/null;
-    fi
-  # local.properties carries a developer-machine sdk.dir and must never leak into CI.
-  - rm -f local.properties
 
 # Files that can affect build/test outcomes. A commit touching anything else
 # (docs, metadata, licenses…) skips the verify job and its pipeline minutes.
@@ -71,9 +58,6 @@ cache:
   - "config/detekt/**"
   - ".gitlab-ci.yml"
 
-# Builds and pushes the CI execution image (JDK 21 + Android SDK 36) to this
-# project's container registry. Runs AUTOMATICALLY whenever ci/Dockerfile changes,
-# and manually otherwise — so the base image is refreshed only when needed.
 prepare-ci-image:
   stage: setup
   image: docker:27
@@ -97,7 +81,7 @@ prepare-ci-image:
 
 verify:
   stage: verify
-  before_script: *setup-sdk
+  timeout: 20m
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
       changes: *code-paths
@@ -105,32 +89,53 @@ verify:
       changes: *code-paths
     - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "schedule"'
   script:
-    # One Gradle invocation for everything: a single configuration phase instead
-    # of one per job — detekt + both flavors' unit tests together.
-    - ./gradlew --no-daemon :app:detekt :app:testFossOnnxDebugUnitTest :app:testMlkitDebugUnitTest
+    # One Gradle invocation for everything: a single configuration phase.
+    # The unit tests are in the shared main source set, so running them once
+    # (fossOnnx) covers both flavors; the mlkit flavor is verified by compiling
+    # it, which is much cheaper than re-running identical tests.
+    - ./gradlew --no-daemon :app:detekt :app:testFossOnnxDebugUnitTest :app:compileMlkitDebugKotlin
   artifacts:
     when: always
     reports:
       junit:
         - app/build/test-results/testFossOnnxDebugUnitTest/*.xml
-        - app/build/test-results/testMlkitDebugUnitTest/*.xml
     expire_in: 1 week
 
-# MANUAL ONLY — never runs on push. Trigger from the pipeline view (play button)
-# or via Run pipeline. Produces R8-minified per-ABI release APKs for both flavors.
-build-apks:
+# MANUAL ONLY — never runs on push. Per flavor so you build only what you need.
+# Produces R8-minified per-ABI release APKs (arm64-v8a / armeabi-v7a / x86_64 /
+# universal). needs: [] lets a build start immediately, in parallel with verify.
+build-apks-fossonnx:
   stage: build
-  before_script: *setup-sdk
+  needs: []
+  timeout: 45m
+  resource_group: release-apks
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
       when: manual
     - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "schedule"'
       when: manual
   script:
-    - ./gradlew --no-daemon :app:assembleFossOnnxRelease :app:assembleMlkitRelease
+    - ./gradlew --no-daemon :app:assembleFossOnnxRelease
   artifacts:
     paths:
-      - app/build/outputs/apk/*/release/*.apk
+      - app/build/outputs/apk/fossOnnx/release/*.apk
+    expire_in: 7 days
+
+build-apks-mlkit:
+  stage: build
+  needs: []
+  timeout: 45m
+  resource_group: release-apks
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: manual
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "schedule"'
+      when: manual
+  script:
+    - ./gradlew --no-daemon :app:assembleMlkitRelease
+  artifacts:
+    paths:
+      - app/build/outputs/apk/mlkit/release/*.apk
     expire_in: 7 days
 
 stages:
