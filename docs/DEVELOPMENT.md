@@ -118,6 +118,29 @@ button next to `build-apks` on a pipeline (or Run pipeline → trigger it) when
 you actually want release APKs. APK builds are deliberately never automatic:
 two R8 releases across 4 ABIs would burn pipeline minutes on every push.
 
+## F-Droid
+
+- **Build metadata template**: `fdroid/com.haramveil.yml`. Submission copies it to
+  the [fdroiddata](https://gitlab.com/fdroid/fdroiddata) repository as
+  `metadata/com.haramveil.yml` and opens a merge request there. The template pins
+  the release commit hash; bump it (and add a new `Builds:` block with the new
+  versionCode) for every release.
+- **Build shape**: F-Droid builds run `gradle -PfdroidBuild assembleFossOnnxRelease`
+  — the property disables ABI splits so exactly one universal APK is produced
+  (`output:` glob matches it). Normal developer builds keep per-ABI splits.
+- **Store texts**: `app/metadata/android/en-US/` (title/short/full descriptions,
+  changelogs, icon, screenshots). They live under `app/` because the Build
+  metadata uses `subdir: app` — fdroidserver reads them from the build subdir.
+- **Bundled binaries**: the two ONNX model weights and the Amiri font are declared
+  via `scanignore` in the metadata with their origin documented in
+  [LICENSES.md](../LICENSES.md) and [NOTICE](../NOTICE). Model sources must stay
+  verifiable — never add a model without a license + origin note + scanignore
+  entry.
+- **Known policy constraints**: F-Droid asks for ~3 months of active development
+  before inclusion (exceptions possible — state the user base and maintenance
+  commitment in the merge request); no Google Play Services in the built flavor
+  (the `mlkit` flavor must never be referenced in the metadata).
+
 ## Module Map (detection/inference)
 
 Beyond the [architecture](ARCHITECTURE.md) overview, these are the pieces to know

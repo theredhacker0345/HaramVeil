@@ -63,13 +63,15 @@ HaramVeil/
 │   │   │   │   ├── utils/           # DetectionBus, throttling, capture
 │   │   │   │   └── onboarding/      # First-run coordinator
 │   │   │   └── res/                # Resources (manifest under main)
-│   │   ├── fossOnnx/              # FOSS OCR engine (RapidOCR)
+│   │   ├── fossOnnx/              # FOSS OCR engine + bundled PP-OCRv5 model/dict
 │   │   ├── mlkit/                 # Google ML Kit OCR engine
+│   │   ├── metadata/              # Fastlane store metadata (read by F-Droid; lives
+│   │   │                          #   under app/ because the build uses subdir: app)
 │   │   └── test/                  # Unit tests (UITreeScanner)
 │   └── proguard-rules.pro
+├── ci/                           # Dockerfile for the CI execution image
 ├── config/                       # detekt configuration
-├── fastlane/                     # Fastlane metadata
-├── fdroid/                       # F-Droid build metadata
+├── fdroid/                       # F-Droid build-metadata template (for fdroiddata)
 ├── gradle/                       # Wrapper
 ├── build.gradle.kts              # Root project, detekt
 └── settings.gradle
