@@ -24,6 +24,7 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.os.Process
+import android.os.SystemClock
 import com.haramveil.data.models.BenchmarkResult
 import com.haramveil.data.models.ModelImportManager
 import com.haramveil.data.models.ModelSource
@@ -31,12 +32,14 @@ import com.haramveil.data.models.VisualModelOption
 import com.haramveil.utils.DebugLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.FloatBuffer
 import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.system.measureTimeMillis
 
 class OnnxBenchmarkRunner(
@@ -47,7 +50,10 @@ class OnnxBenchmarkRunner(
 
     suspend fun run(): BenchmarkResult =
         withContext(Dispatchers.Default) {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            // LESS_FAVORABLE keeps the thread in the foreground CPU cgroup: true
+            // BACKGROUND priority confines a thread to the ~5%-CPU background group,
+            // which made the benchmark read 10-50x slower than reality.
+            Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
 
             val latency320 = benchmarkModel(VisualModelOption.MODEL_320)
 
@@ -119,36 +125,76 @@ class OnnxBenchmarkRunner(
         null
     }
 
+    /**
+     * Runs the model once on a dedicated thread and waits at most
+     * [BenchmarkBudgetMs]. The wait is a real bound — a native inference run cannot
+     * be interrupted, so on timeout the thread is abandoned mid-run and the session
+     * is closed by the task's own finally when it eventually finishes; the caller
+     * treats the model as not viable for this device and onboarding moves on.
+     */
     private suspend fun measureLatency(
         model: VisualModelOption,
         modelFile: File,
-    ): Long {
-        val environment = OrtEnvironment.getEnvironment()
-        return OrtSession.SessionOptions().use { sessionOptions ->
-            environment.createSession(modelFile.absolutePath, sessionOptions).use { session ->
-                val tensorInfo = session.inputInfo.values.first().info as TensorInfo
-                val inputShape = tensorInfo.shape.mapIndexed { index, dimension ->
-                    when {
-                        dimension > 0L -> dimension
-                        index == 0 -> 1L
-                        else -> model.inputSize.toLong()
-                    }
-                }.toLongArray()
+    ): Long? {
+        val executor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "haramveil-onnx-benchmark").apply { isDaemon = true }
+        }
+        val startedAtMs = SystemClock.elapsedRealtime()
+        return try {
+            val future = executor.submit(
+                Callable {
+                    val environment = OrtEnvironment.getEnvironment()
+                    OrtSession.SessionOptions().use { sessionOptions ->
+                        environment.createSession(modelFile.absolutePath, sessionOptions).use { session ->
+                            val tensorInfo = session.inputInfo.values.first().info as TensorInfo
+                            val inputShape = tensorInfo.shape.mapIndexed { index, dimension ->
+                                when {
+                                    dimension > 0L -> dimension
+                                    index == 0 -> 1L
+                                    else -> model.inputSize.toLong()
+                                }
+                            }.toLongArray()
 
-                // A zero-filled buffer of the declared shape is a valid blank input; the
-                // allocate-then-recycle bitmap this used to build contributed nothing.
-                val elementCount = inputShape.fold(1L) { total, dimension -> total * dimension }
-                val inputData = FloatArray(elementCount.toInt())
+                            // A zero-filled buffer of the declared shape is a valid blank
+                            // input; the allocate-then-recycle bitmap this used to build
+                            // contributed nothing.
+                            val elementCount = inputShape.fold(1L) { total, dimension -> total * dimension }
+                            val inputData = FloatArray(elementCount.toInt())
 
-                OnnxTensor.createTensor(environment, FloatBuffer.wrap(inputData), inputShape).use { tensor ->
-                    val inputName = resolveInputName(session)
-                    currentCoroutineContext().ensureActive()
-                    val latency = measureTimeMillis {
-                        session.run(mapOf(inputName to tensor)).use { _ -> }
+                            OnnxTensor.createTensor(environment, FloatBuffer.wrap(inputData), inputShape).use { tensor ->
+                                val inputName = resolveInputName(session)
+                                val latency = measureTimeMillis {
+                                    session.run(mapOf(inputName to tensor)).use { _ -> }
+                                }
+                                DebugLog.i(context, LogTag) {
+                                    "ONNX benchmark: ${model.displayName} single-run ${latency}ms."
+                                }
+                                latency
+                            }
+                        }
                     }
-                    currentCoroutineContext().ensureActive()
-                    latency
+                },
+            )
+            try {
+                future.get(BenchmarkBudgetMs, TimeUnit.MILLISECONDS)
+            } catch (timeout: TimeoutException) {
+                // Leave the run to finish on its own thread (its finally closes the
+                // session); the model is simply too slow to be offered for this device.
+                future.cancel(false)
+                DebugLog.w(context, LogTag) {
+                    "ONNX benchmark: ${model.displayName} exceeded the ${BenchmarkBudgetMs / 1000}s budget — treated as unsupported."
                 }
+                null
+            }
+        } catch (failure: Exception) {
+            DebugLog.w(context, LogTag) {
+                "ONNX benchmark failed for ${model.displayName}: ${failure.message}"
+            }
+            null
+        } finally {
+            executor.shutdown()
+            DebugLog.d(context, LogTag) {
+                "ONNX benchmark: ${model.displayName} finished in ${SystemClock.elapsedRealtime() - startedAtMs}ms of wall time."
             }
         }
     }
@@ -190,6 +236,14 @@ class OnnxBenchmarkRunner(
 
     private companion object {
         const val LatencyBudgetMs = 1_500L
+
+        /**
+         * Hard wall-clock budget per benchmarked model. Generous enough for every real
+         * phone (the 320 model runs in well under 2s even on weak hardware), short
+         * enough that onboarding can never hang for minutes on slow server CPUs or
+         * starved threads.
+         */
+        const val BenchmarkBudgetMs = 15_000L
         const val LogTag = "HaramVeilBenchmark"
 
         val PreferredInputNames = listOf("images", "input")

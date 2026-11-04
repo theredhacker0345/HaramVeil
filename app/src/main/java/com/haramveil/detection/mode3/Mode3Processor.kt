@@ -165,7 +165,10 @@ class Mode3Processor(
 
     private suspend fun processTrigger(trigger: Mode1WakeRequest) {
         withContext(dispatcherProvider.default) {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            // THREAD_PRIORITY_BACKGROUND would confine this thread to the ~5%-CPU
+            // background cgroup, starving inference; LESS_FAVORABLE stays in the
+            // foreground group at slightly reduced priority.
+            Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
 
             val settings = settingsProvider()
             if (!settings.mode3Enabled || !trigger.wakeMode3) {

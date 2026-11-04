@@ -55,7 +55,9 @@ class AccelerationBenchmarkRunner(
 ) {
 
     suspend fun run(): AccelerationBenchmarkSummary = withContext(Dispatchers.Default) {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+        // LESS_FAVORABLE keeps the thread in the foreground CPU cgroup; true BACKGROUND
+        // priority would starve the very timings this benchmark is measuring.
+        Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
 
         val modelFile = stageModelFile()
             ?: error("Could not stage the visual model for the acceleration benchmark.")

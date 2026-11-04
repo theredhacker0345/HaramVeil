@@ -102,7 +102,10 @@ class Mode2Processor(
 
     private suspend fun processTrigger(trigger: Mode1WakeRequest) {
         withContext(dispatcherProvider.default) {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            // THREAD_PRIORITY_BACKGROUND would confine this thread to the ~5%-CPU
+            // background cgroup, starving OCR; LESS_FAVORABLE stays in the foreground
+            // group at slightly reduced priority.
+            Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
 
             val settings = settingsProvider()
             if (!settings.mode2Enabled || !trigger.wakeMode2) {
