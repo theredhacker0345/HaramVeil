@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- App icon background color (dark teal to match the app theme) -->
-    <color name="ic_launcher_background">#1A2B2B</color>
+    <!-- App icon background color: matches the icon art's dark teal (#0B4339)
+         so the adaptive foreground blends seamlessly into the background -->
+    <color name="ic_launcher_background">#0B4339</color>
     
     <!-- Primary colors -->
     <color name="primary">#00BFA5</color>
