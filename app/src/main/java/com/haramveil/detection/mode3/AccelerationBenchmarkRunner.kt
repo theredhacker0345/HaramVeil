@@ -76,16 +76,31 @@ class AccelerationBenchmarkRunner(
                 sessionOptions.addXnnpack(emptyMap())
             }
 
+            // NNAPI is skipped entirely on emulators: their NNAPI implementation is the
+            // slow nnapi-reference CPU device, session creation is a blocking native
+            // call the per-provider budget cannot interrupt, and NNAPI can never win
+            // adoption there — measuring it would stall the check for nothing.
+            val skipNnapi = isEmulator()
+            if (skipNnapi) {
+                DebugLog.i(context, LogTag) {
+                    "Acceleration benchmark: skipping NNAPI (emulator has no usable AI chip)."
+                }
+            }
+
             // NNAPI first in FP16 (the variant we would adopt); FP32 is only measured
             // when FP16 completed, so a device whose NNAPI driver is missing or hopeless
             // is not paid for twice.
-            val nnapiFp16LatencyMs = measureProvider(
-                providerName = "NNAPI FP16",
-                inputSize = BundledModelInputSize,
-                modelFile = modelFile,
-            ) { sessionOptions -> configureNnapi(sessionOptions, useFp16 = true) }
+            val nnapiFp16LatencyMs = if (skipNnapi) {
+                null
+            } else {
+                measureProvider(
+                    providerName = "NNAPI FP16",
+                    inputSize = BundledModelInputSize,
+                    modelFile = modelFile,
+                ) { sessionOptions -> configureNnapi(sessionOptions, useFp16 = true) }
+            }
 
-            val nnapiFp32LatencyMs = if (nnapiFp16LatencyMs != null) {
+            val nnapiFp32LatencyMs = if (!skipNnapi && nnapiFp16LatencyMs != null) {
                 measureProvider(
                     providerName = "NNAPI FP32",
                     inputSize = BundledModelInputSize,
@@ -218,7 +233,12 @@ class AccelerationBenchmarkRunner(
                         if (timings.isEmpty()) {
                             return null
                         }
-                        timings.sorted()[timings.size / 2]
+                        val median = timings.sorted()[timings.size / 2]
+                        DebugLog.i(context, LogTag) {
+                            "$providerName: median ${median}ms over ${timings.size} run(s) " +
+                                "in ${SystemClock.elapsedRealtime() - providerStartedAtMs}ms total."
+                        }
+                        median
                     }
                 }
             }
@@ -253,6 +273,18 @@ class AccelerationBenchmarkRunner(
             .joinToString(" ")
             .trim()
             .ifEmpty { "unknown device" }
+
+    /** Emulators only expose the slow nnapi-reference NNAPI device: skip measuring it. */
+    private fun isEmulator(): Boolean =
+        Build.FINGERPRINT.startsWith("generic") ||
+            Build.FINGERPRINT.startsWith("unknown") ||
+            Build.MODEL.contains("Emulator", ignoreCase = true) ||
+            Build.MODEL.contains("Android SDK built for", ignoreCase = true) ||
+            Build.MANUFACTURER.contains("Genymotion", ignoreCase = true) ||
+            Build.PRODUCT.startsWith("sdk") ||
+            Build.PRODUCT.contains("emulator", ignoreCase = true) ||
+            Build.HARDWARE.contains("goldfish", ignoreCase = true) ||
+            Build.HARDWARE.contains("ranchu", ignoreCase = true)
 
     private fun stageModelFile(): File? = try {
         when (BundledModel.source) {
