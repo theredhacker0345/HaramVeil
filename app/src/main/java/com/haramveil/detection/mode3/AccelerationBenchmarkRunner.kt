@@ -25,6 +25,7 @@ import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import android.os.SystemClock
 import com.haramveil.data.models.AccelerationBenchmarkSummary
 import com.haramveil.data.models.InferenceAccelerator
 import com.haramveil.data.models.ModelImportManager
@@ -75,17 +76,24 @@ class AccelerationBenchmarkRunner(
                 sessionOptions.addXnnpack(emptyMap())
             }
 
-            val nnapiFp32LatencyMs = measureProvider(
-                providerName = "NNAPI FP32",
-                inputSize = BundledModelInputSize,
-                modelFile = modelFile,
-            ) { sessionOptions -> configureNnapi(sessionOptions, useFp16 = false) }
-
+            // NNAPI first in FP16 (the variant we would adopt); FP32 is only measured
+            // when FP16 completed, so a device whose NNAPI driver is missing or hopeless
+            // is not paid for twice.
             val nnapiFp16LatencyMs = measureProvider(
                 providerName = "NNAPI FP16",
                 inputSize = BundledModelInputSize,
                 modelFile = modelFile,
             ) { sessionOptions -> configureNnapi(sessionOptions, useFp16 = true) }
+
+            val nnapiFp32LatencyMs = if (nnapiFp16LatencyMs != null) {
+                measureProvider(
+                    providerName = "NNAPI FP32",
+                    inputSize = BundledModelInputSize,
+                    modelFile = modelFile,
+                ) { sessionOptions -> configureNnapi(sessionOptions, useFp16 = false) }
+            } else {
+                null
+            }
 
             val nnapiCandidate = when {
                 nnapiFp16LatencyMs != null && nnapiFp32LatencyMs != null ->
@@ -155,6 +163,15 @@ class AccelerationBenchmarkRunner(
         )
     }
 
+    /**
+     * Median of the measured runs after one discarded warmup. Every provider is bound
+     * by [ProviderBudgetMs] measured from before its session creation: once the budget
+     * is spent, remaining warmup/timed runs are skipped and the timing of whatever
+     * completed is returned. This bounds the whole check to a few seconds even on
+     * devices whose NNAPI driver resolves to a very slow reference implementation —
+     * a slow-but-working provider keeps its (bad) timing and loses the adoption rule,
+     * instead of stalling the check.
+     */
     private suspend fun measureProvider(
         providerName: String,
         inputSize: Int,
@@ -162,11 +179,47 @@ class AccelerationBenchmarkRunner(
         configure: (OrtSession.SessionOptions) -> Unit,
     ): Long? {
         val environment = OrtEnvironment.getEnvironment()
+        val providerStartedAtMs = SystemClock.elapsedRealtime()
+        fun overBudget(): Boolean =
+            SystemClock.elapsedRealtime() - providerStartedAtMs > ProviderBudgetMs
+
         return try {
             OrtSession.SessionOptions().use { sessionOptions ->
                 configure(sessionOptions)
                 environment.createSession(modelFile.absolutePath, sessionOptions).use { session ->
-                    timeMedianRun(environment, session, inputSize)
+                    val inputShape = resolveInputShape(session, inputSize)
+                    val elementCount = inputShape.fold(1L) { total, dimension -> total * dimension }
+                    OnnxTensor.createTensor(
+                        environment,
+                        FloatBuffer.wrap(FloatArray(elementCount.toInt())),
+                        inputShape,
+                    ).use { tensor ->
+                        val inputName = resolveInputName(session)
+                        if (overBudget()) {
+                            DebugLog.w(context, LogTag) {
+                                "Acceleration benchmark: $providerName exceeded its ${ProviderBudgetMs}ms budget during setup."
+                            }
+                            return null
+                        }
+                        currentCoroutineContext().ensureActive()
+                        session.run(mapOf(inputName to tensor)).use { }
+                        if (overBudget()) {
+                            return null
+                        }
+                        val timings = mutableListOf<Long>()
+                        var run = 0
+                        while (run < TimingRuns && !overBudget()) {
+                            currentCoroutineContext().ensureActive()
+                            timings += measureTimeMillis {
+                                session.run(mapOf(inputName to tensor)).use { }
+                            }
+                            run += 1
+                        }
+                        if (timings.isEmpty()) {
+                            return null
+                        }
+                        timings.sorted()[timings.size / 2]
+                    }
                 }
             }
         } catch (cancellation: CancellationException) {
@@ -176,38 +229,6 @@ class AccelerationBenchmarkRunner(
                 "Acceleration benchmark: $providerName unavailable or failed (${failure.javaClass.simpleName})."
             }
             null
-        }
-    }
-
-    /**
-     * Median of [TimingRuns] measured runs after [WarmupRuns] discarded ones: single-shot
-     * timings on a just-created session are dominated by one-time kernel/DSP setup and
-     * would misrepresent steady-state scanning.
-     */
-    private suspend fun timeMedianRun(
-        environment: OrtEnvironment,
-        session: OrtSession,
-        inputSize: Int,
-    ): Long {
-        val inputShape = resolveInputShape(session, inputSize)
-        val elementCount = inputShape.fold(1L) { total, dimension -> total * dimension }
-        return OnnxTensor.createTensor(
-            environment,
-            FloatBuffer.wrap(FloatArray(elementCount.toInt())),
-            inputShape,
-        ).use { tensor ->
-            val inputName = resolveInputName(session)
-            repeat(WarmupRuns) {
-                currentCoroutineContext().ensureActive()
-                session.run(mapOf(inputName to tensor)).use { }
-            }
-            val timings = List(TimingRuns) {
-                currentCoroutineContext().ensureActive()
-                measureTimeMillis {
-                    session.run(mapOf(inputName to tensor)).use { }
-                }
-            }
-            timings.sorted()[TimingRuns / 2]
         }
     }
 
@@ -278,8 +299,15 @@ class AccelerationBenchmarkRunner(
 
     private companion object {
         const val LogTag = "HaramVeilAcceleration"
-        const val WarmupRuns = 2
         const val TimingRuns = 5
+
+        /**
+         * Per-provider wall-clock budget covering session creation, one warmup run and
+         * the timed runs. Caps the whole 4-provider check at roughly 4x this even on
+         * devices with pathologically slow backends (e.g. the emulator's
+         * nnapi-reference driver).
+         */
+        const val ProviderBudgetMs = 2_500L
 
         // NNAPI must be at least 20% faster than the plain CPU to be worth the
         // partitioning overhead and driver risk on any given device.
