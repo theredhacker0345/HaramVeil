@@ -24,8 +24,8 @@ Builds:
     gradle:
       - fossOnnx
     gradleprops:
-      - fdroidBuild
-    output: build/outputs/apk/fossOnnx/release/*.apk
+      - abi=arm64-v8a
+    output: build/outputs/apk/fossOnnx/release/*arm64*.apk
     scanignore:
       # Pre-trained model weights: data assets, not executables.
       - src/main/assets/320n.onnx
@@ -37,8 +37,11 @@ MaintainerNotes: |
   The fossOnnx flavor is the only FOSS-clean build: it has no Google Play
   Services / ML Kit dependency, and release builds strip the INTERNET
   permission (app/src/release/AndroidManifest.xml, tools:node="remove").
-  -PfdroidBuild disables ABI splits so the build yields exactly one
-  universal APK.
+  -Pabi=arm64-v8a makes the build emit exactly one APK: arm64-v8a covers
+  virtually every minSdk-29 device and keeps the download ~52 MB instead of
+  a ~139 MB universal (the ONNX runtime is bundled once per ABI). Users on
+  the rare remaining 32-bit devices build from source; see the README and
+  docs/DEVELOPMENT.md for the one-liner.
 
   Bundled AI assets (data, not executable code):
   - src/main/assets/320n.onnx — NudeNet v3.4 detector weights (~12 MB),

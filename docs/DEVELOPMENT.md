@@ -37,14 +37,32 @@ The selected flavor sets `BuildConfig.INCLUDE_MLKIT`.
 ./gradlew :app:assembleMlkitRelease
 ```
 
-Release builds run R8 + resource shrinking and are **split per ABI**:
+Release builds run R8 + resource shrinking.
 
+**ABI packaging** — controlled by the `abi` Gradle property:
+
+- **Default (local builds)**: per-ABI split APKs **plus** a universal APK — covers
+  emulators (x86_64), the rare 32-bit device, and sideloading everywhere:
+  ```
+  app/build/outputs/apk/fossOnnx/release/app-fossOnnx-arm64-v8a-release-unsigned.apk   (~52 MB)
+  app/build/outputs/apk/fossOnnx/release/app-fossOnnx-armeabi-v7a-release-unsigned.apk
+  app/build/outputs/apk/fossOnnx/release/app-fossOnnx-x86_64-release-unsigned.apk
+  app/build/outputs/apk/fossOnnx/release/app-fossOnnx-universal-release-unsigned.apk   (~139 MB)
+  ```
+- **`-Pabi=<name>`**: exactly one APK for that ABI (no universal). CI and the
+  F-Droid metadata pass `-Pabi=arm64-v8a` — the ~26 MB ONNX runtime is bundled
+  once per ABI, so a universal build is ~139 MB while arm64 alone is ~52 MB and
+  covers virtually every Android 10+ device.
+
+```bash
+# emulator (x86_64 image)
+./gradlew -Pabi=x86_64 :app:assembleFossOnnxDebug
+# the rare 32-bit device
+./gradlew -Pabi=armeabi-v7a :app:assembleFossOnnxRelease
 ```
-app/build/outputs/apk/fossOnnx/release/app-fossOnnx-arm64-v8a-release-unsigned.apk   (~52 MB)
-app/build/outputs/apk/fossOnnx/release/app-fossOnnx-armeabi-v7a-release-unsigned.apk
-app/build/outputs/apk/fossOnnx/release/app-fossOnnx-x86_64-release-unsigned.apk
-app/build/outputs/apk/fossOnnx/release/app-fossOnnx-universal-release-unsigned.apk
-```
+
+Installable minimum is Android 10 (API 29); full functionality (Modes 2 & 3,
+which use `AccessibilityService.takeScreenshot`) requires Android 11 (API 30).
 
 ### Signing releases
 
@@ -125,9 +143,10 @@ two R8 releases across 4 ABIs would burn pipeline minutes on every push.
   `metadata/com.haramveil.yml` and opens a merge request there. The template pins
   the release commit hash; bump it (and add a new `Builds:` block with the new
   versionCode) for every release.
-- **Build shape**: F-Droid builds run `gradle -PfdroidBuild assembleFossOnnxRelease`
-  — the property disables ABI splits so exactly one universal APK is produced
-  (`output:` glob matches it). Normal developer builds keep per-ABI splits.
+- **Build shape**: F-Droid builds run `gradle -Pabi=arm64-v8a assembleFossOnnxRelease`
+  — a single arm64-v8a APK (~52 MB), which covers virtually every Android 10+
+  device. The alternative (a ~139 MB universal) is one `gradleprops` line away
+  in the metadata if device coverage ever matters more than download size.
 - **Store texts**: `app/metadata/android/en-US/` (title/short/full descriptions,
   changelogs, icon, screenshots). They live under `app/` because the Build
   metadata uses `subdir: app` — fdroidserver reads them from the build subdir.

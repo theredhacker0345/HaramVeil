@@ -71,13 +71,26 @@ android {
         }
     }
 
-    // Per-ABI splits keep the ~26 MB ONNX runtime library from quadrupling the
-    // download: arm64-v8a covers virtually every minSdk-29 device, armeabi-v7a
-    // stays for the few remaining 32-bit budget phones, and x86_64 exists only
-    // for emulators. F-Droid builds pass -PfdroidBuild to produce a single
-    // universal APK — one APK per Build metadata entry is what fdroidserver
-    // expects, and it keeps the reproducible-build comparison simple.
-    if (!project.hasProperty("fdroidBuild")) {
+    // ABI packaging:
+    //  - default (local dev): per-ABI split APKs + a universal APK, so emulators
+    //    (x86_64) and the rare 32-bit device are covered.
+    //  - -Pabi=<name> (CI and F-Droid): exactly one APK for that ABI. The ~26 MB
+    //    ONNX runtime library would otherwise be bundled once per ABI, which is
+    //    why universal APKs reach ~139 MB; arm64-v8a alone is ~52 MB and covers
+    //    virtually every minSdk-29 (Android 10+) device.
+    //    CI passes -Pabi=arm64-v8a; the F-Droid metadata does the same
+    //    (see fdroid/com.haramveil.yml).
+    val abiProperty = project.findProperty("abi") as String?
+    if (abiProperty != null) {
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include(abiProperty)
+                isUniversalApk = false
+            }
+        }
+    } else {
         splits {
             abi {
                 isEnable = true

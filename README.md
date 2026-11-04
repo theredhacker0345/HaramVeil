@@ -107,7 +107,7 @@ The detector input is the full screen (letterboxed 320×320 for the bundled mode
 | **fossOnnx** | Bundled PP-OCRv5 (ONNX) | 100% open source, no INTERNET permission | F-Droid users, privacy advocates |
 | **mlkit** | Google ML Kit | proprietary Play Services binaries | Play-distributed builds |
 
-Release builds are minified (R8) and split per ABI: `arm64-v8a` (≈52 MB fossOnnx / ≈46 MB mlkit), `armeabi-v7a` (legacy 32-bit devices), `x86_64` (emulators), plus a universal APK.
+Release builds are minified (R8). Official release APKs (CI artifacts and F-Droid) are **arm64-v8a only** (≈52 MB fossOnnx / ≈46 MB mlkit) — that architecture covers virtually every Android 10+ device, and shipping the ~26 MB AI runtime once per ABI would quadruple the download. Local builds additionally produce `armeabi-v7a`, `x86_64`, and a universal APK; single-ABI builds for emulators or other devices: `./gradlew -Pabi=x86_64 :app:assembleFossOnnxDebug` (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 
 ---
 
@@ -124,7 +124,7 @@ Once accepted into the main F-Droid repository:
 The F-Droid build uses the `fossOnnx` flavor — 100% open source, no Google dependencies, no INTERNET permission, OCR and the NSFW detector bundled and functional offline.
 
 #### Option B: Direct APK Download
-1. Download the per-ABI release APK (`HaramVeil-fossOnnx-arm64-v8a-release.apk` fits most modern phones) or the universal one from [Releases](https://gitlab.com/theredhacker0345/HaramVeil/-/releases).
+1. Download the release APK (`HaramVeil-fossOnnx-arm64-v8a-release.apk`) from [Releases](https://gitlab.com/theredhacker0345/HaramVeil/-/releases) — it fits virtually every Android 10+ phone. Emulator (x86_64) or 32-bit-device builds: see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 2. Install the APK (allow "Unknown Sources" if prompted).
 3. **Important**: grant **Accessibility** and **Display over other apps** during onboarding.
 4. Set a strong PIN and choose recovery questions you will remember.
@@ -180,8 +180,11 @@ A: The visual detector is the heaviest part of the pipeline. Android's NNAPI can
 **Q: Can I use this with a VPN or DNS blocker?**
 A: Yes — it's recommended. HaramVeil is designed as the last line of defense alongside network-level blockers like NextDNS or AdGuard.
 
-**Q: Why are there multiple APK files?**
-A: Release APKs are split per CPU architecture so you only download the ~26 MB AI runtime once. Most phones need `arm64-v8a`; the universal APK contains everything.
+**Q: Why is the release APK arm64-only, and what about emulators or old devices?**
+A: The AI runtime is a ~26 MB native library bundled once per CPU architecture — a universal APK would be ~139 MB while arm64-v8a alone is ~52 MB, and arm64 covers virtually every Android 10+ device. For an emulator or a 32-bit device, build locally: `./gradlew -Pabi=x86_64 :app:assembleFossOnnxDebug` (or `-Pabi=armeabi-v7a`; a plain build produces all variants plus a universal APK).
+
+**Q: What Android version is required?**
+A: Installation needs Android 10 (API 29). Full functionality — OCR and visual AI — needs Android 11 (API 30), because the accessibility screenshot API only exists from that version; on Android 10 the keyword scanner (Mode 1) still works.
 
 ---
 

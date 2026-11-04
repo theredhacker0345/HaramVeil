@@ -115,7 +115,9 @@ build-apks-fossonnx:
     - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "schedule"'
       when: manual
   script:
-    - ./gradlew --no-daemon :app:assembleFossOnnxRelease
+    # arm64-v8a only: the ~26 MB ONNX runtime is bundled once per ABI, so a
+    # single-ABI build is ~52 MB instead of a ~139 MB universal APK.
+    - ./gradlew --no-daemon -Pabi=arm64-v8a :app:assembleFossOnnxRelease
   artifacts:
     paths:
       - app/build/outputs/apk/fossOnnx/release/*.apk
@@ -132,7 +134,7 @@ build-apks-mlkit:
     - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "schedule"'
       when: manual
   script:
-    - ./gradlew --no-daemon :app:assembleMlkitRelease
+    - ./gradlew --no-daemon -Pabi=arm64-v8a :app:assembleMlkitRelease
   artifacts:
     paths:
       - app/build/outputs/apk/mlkit/release/*.apk
