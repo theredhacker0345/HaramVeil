@@ -93,12 +93,17 @@ verify:
     # The unit tests are in the shared main source set, so running them once
     # (fossOnnx) covers both flavors; the mlkit flavor is verified by compiling
     # it, which is much cheaper than re-running identical tests.
-    - ./gradlew --no-daemon :app:detekt :app:testFossOnnxDebugUnitTest :app:compileMlkitDebugKotlin
+    # One Gradle invocation for everything: a single configuration phase instead
+    # of one per job. --continue keeps a detekt failure from blocking the unit
+    # tests (and vice versa), so one run surfaces every problem.
+    - ./gradlew --no-daemon --continue :app:detekt :app:testFossOnnxDebugUnitTest :app:compileMlkitDebugKotlin
   artifacts:
     when: always
     reports:
       junit:
         - app/build/test-results/testFossOnnxDebugUnitTest/*.xml
+    paths:
+      - app/build/reports/detekt/detekt.md
     expire_in: 1 week
 
 # MANUAL ONLY — never runs on push. Per flavor so you build only what you need.

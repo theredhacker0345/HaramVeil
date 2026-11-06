@@ -189,6 +189,7 @@ class AccelerationBenchmarkRunner(
      * a slow-but-working provider keeps its (bad) timing and loses the adoption rule,
      * instead of stalling the check.
      */
+    @Suppress("NestedBlockDepth")
     private suspend fun measureProvider(
         providerName: String,
         inputSize: Int,

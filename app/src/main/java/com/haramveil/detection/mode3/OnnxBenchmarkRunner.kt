@@ -177,12 +177,13 @@ class OnnxBenchmarkRunner(
             )
             try {
                 future.get(BenchmarkBudgetMs, TimeUnit.MILLISECONDS)
-            } catch (timeout: TimeoutException) {
+            } catch (ignoredTimeout: TimeoutException) {
                 // Leave the run to finish on its own thread (its finally closes the
                 // session); the model is simply too slow to be offered for this device.
                 future.cancel(false)
                 DebugLog.w(context, LogTag) {
-                    "ONNX benchmark: ${model.displayName} exceeded the ${BenchmarkBudgetMs / 1000}s budget — treated as unsupported."
+                    "ONNX benchmark: ${model.displayName} exceeded the ${BenchmarkBudgetMs / 1000}s budget " +
+                        "($ignoredTimeout) — treated as unsupported."
                 }
                 null
             }
