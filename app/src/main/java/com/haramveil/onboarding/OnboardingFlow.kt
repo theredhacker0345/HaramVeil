@@ -475,14 +475,14 @@ private fun CapabilityBenchmarkScreen(
                     isRecommended = uiState.isDeGoogledDevice,
                     title = "FOSS RapidOCR via ONNX",
                     description = "Fully open approach with on-device OCR models and no Play Services dependency.",
-                    privacyNote = "Best for de-Googled or privacy-first setups. Model will download in the background on your approval.",
+                    privacyNote = "Best for de-Googled or privacy-first setups. The OCR model ships bundled and works fully offline.",
                     onSelected = onTextEngineSelected,
                 )
 
                 if (uiState.selectedTextEngine == TextRecognitionEngine.FOSS_ONNX) {
                     NoticeCard(
                         title = "FOSS OCR note",
-                        body = "Model will download in background (~15MB). Internet permission will be removed after download.",
+                        body = "The English OCR model and dictionary ship inside the app — no download, no INTERNET permission, fully offline.",
                         accentColor = MaterialTheme.colorScheme.secondary,
                     )
                 }

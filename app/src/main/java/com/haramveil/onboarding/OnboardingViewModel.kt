@@ -309,9 +309,13 @@ class OnboardingViewModel(
             val snapshot = repository.readSnapshot()
             val playServicesAvailable = isPackageInstalled("com.google.android.gms")
             val installedApps = loadInstalledApps()
-            val benchmarkState = snapshot.benchmarkResult.toUiState(
-                isRunning = snapshot.benchmarkResult == null,
-            )
+            // isRunning must start FALSE: the runBenchmark() call below is guarded by
+            // `if (_uiState.value.benchmark.isRunning) return`, so seeding it with true
+            // (the old `snapshot.benchmarkResult == null` interpretation) made the guard
+            // bail instantly — the benchmark never ran and the spinner spun forever on
+            // every fresh install, bricking onboarding at step 2. runBenchmark() flips
+            // isRunning to true itself when the measurement actually starts.
+            val benchmarkState = snapshot.benchmarkResult.toUiState(isRunning = false)
 
             val supportedModel = snapshot.benchmarkResult?.supportedModel
             val defaultVisualModel = snapshot.selectedVisualModel ?: supportedModel
